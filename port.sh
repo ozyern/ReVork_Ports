@@ -690,20 +690,182 @@ else
     fi
 fi
 
+# ==================================================
+# HAL-AWARE BALANCED AGGRESSIVE STACK – OP9 / OP9 PRO
+# Sustained Gaming Without Killing Battery
+# ==================================================
+
+if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]] && \
+   [[ "${base_device_family}" == "OPSM8350" ]] && \
+   ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]); then
+
+    echo "Applying HAL-Aware Balanced Performance Tuning..."
+
+    # --------------------------------------------------
+    # 1️⃣ Power HAL Boost Duration Tuning (Safe)
+    # --------------------------------------------------
+    if [ -f build/portrom/images/vendor/etc/powerhint.xml ]; then
+        sed -i 's/<Duration>80<\/Duration>/<Duration>140<\/Duration>/g' \
+        build/portrom/images/vendor/etc/powerhint.xml
+
+        sed -i 's/<Duration>200<\/Duration>/<Duration>400<\/Duration>/g' \
+        build/portrom/images/vendor/etc/powerhint.xml
+    fi
+
+    # --------------------------------------------------
+    # 2️⃣ Thermal Ramp Relax (NOT Disabling Thermal)
+    # --------------------------------------------------
+    if [ -f build/portrom/images/vendor/etc/thermal-engine.conf ]; then
+        sed -i 's/sampling 2000/sampling 3500/g' \
+        build/portrom/images/vendor/etc/thermal-engine.conf
+    fi
+
+    # --------------------------------------------------
+    # 3️⃣ Governor Ramp-Up Optimization (Schedutil)
+    # --------------------------------------------------
+    mkdir -p build/portrom/images/vendor/etc/init
+
+    cat <<EOF >> build/portrom/images/vendor/etc/init/op9_perf_tuning.rc
+on boot
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us 0
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us 0
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/down_rate_limit_us 0
+EOF
+
+    # --------------------------------------------------
+    # 4️⃣ Mild GPU Stability Boost (No Max Clock Force)
+    # --------------------------------------------------
+    cat <<EOF >> build/portrom/images/vendor/etc/init/op9_gpu_tuning.rc
+on property:sys.boot_completed=1
+    write /sys/class/kgsl/kgsl-3d0/min_freq 400000000
+EOF
+
+fi
+
+# ==================================================
+# ULTIMATE PERFORMANCE STACK – OP9 / OP9 PRO
+# Gaming + Balanced + Battery + HAL Hints Combined
+# ==================================================
+
+if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]] && \
+   [[ "${base_device_family}" == "OPSM8350" ]] && \
+   ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]); then
+
+    echo "Applying ULTIMATE SM8350 Performance Stack..."
+
+    # ----------------------------------
+    # SurfaceFlinger / Frame Pacing
+    # ----------------------------------
+    echo "debug.sf.latch_unsignaled=1" >> build/portrom/images/vendor/default.prop
+    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> build/portrom/images/vendor/default.prop
+    echo "ro.surface_flinger.set_idle_timer_ms=0" >> build/portrom/images/vendor/default.prop
+    echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
+
+    # ----------------------------------
+    # GPU / Rendering
+    # ----------------------------------
+    echo "debug.hwui.renderer=skiagl" >> build/portrom/images/vendor/default.prop
+    echo "debug.hwui.use_buffer_age=false" >> build/portrom/images/vendor/default.prop
+    echo "debug.egl.hw=1" >> build/portrom/images/vendor/default.prop
+    echo "debug.gralloc.enable_fb_ubwc=1" >> build/portrom/images/vendor/default.prop
+    echo "debug.mdpcomp.maxpermixer=2" >> build/portrom/images/vendor/default.prop
+    echo "debug.composition.type=gpu" >> build/portrom/images/vendor/default.prop
+
+    # ----------------------------------
+    # Touch / Input
+    # ----------------------------------
+    echo "debug.input.highres_sampling=1" >> build/portrom/images/vendor/default.prop
+    echo "persist.sys.scrollingcache=3" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # CPU Scheduling / HAL Hints
+    # ----------------------------------
+    echo "sched.boost=1" >> build/portrom/images/vendor/default.prop
+    echo "persist.vendor.sched.boost.enable=1" >> build/portrom/images/vendor/default.prop
+    echo "persist.sys.use_performance_mode=1" >> build/portrom/images/system/system/build.prop
+    echo "persist.sys.game_mode=1" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # ART Runtime
+    # ----------------------------------
+    echo "dalvik.vm.dex2oat64.enabled=true" >> build/portrom/images/system/system/build.prop
+    echo "dalvik.vm.usejit=true" >> build/portrom/images/system/system/build.prop
+    echo "dalvik.vm.heapsize=512m" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # I/O Optimization
+    # ----------------------------------
+    echo "sys.io.scheduler=bfq" >> build/portrom/images/system/system/build.prop
+    echo "persist.sys.io.preload=1" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # Thermal Soft Override (Still Safe)
+    # ----------------------------------
+    echo "persist.vendor.disable.thermal.control=1" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # Memory / LMK
+    # ----------------------------------
+    echo "ro.sys.fw.bg_apps_limit=60" >> build/portrom/images/system/system/build.prop
+    echo "persist.sys.purgeable_assets=1" >> build/portrom/images/system/system/build.prop
+    echo "ro.lmk.medium=1001" >> build/portrom/images/system/system/build.prop
+    echo "ro.lmk.critical=1201" >> build/portrom/images/system/system/build.prop
+    echo "persist.sys.zram_enabled=1" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # Battery Optimizations (from battery mode)
+    # ----------------------------------
+    echo "pm.sleep_mode=1" >> build/portrom/images/system/system/build.prop
+    echo "ro.ril.disable.power.collapse=0" >> build/portrom/images/system/system/build.prop
+    echo "wifi.supplicant_scan_interval=180" >> build/portrom/images/system/system/build.prop
+
+    # ----------------------------------
+    # Remove Debug Overhead
+    # ----------------------------------
+    echo "ro.kernel.android.checkjni=0" >> build/portrom/images/system/system/build.prop
+    echo "debug.atrace.tags.enableflags=0" >> build/portrom/images/system/system/build.prop
+
+fi
+
+# Kaorios Toolbox
+if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]]; then
+    blue "Implement Kaorios Toolbox"
+    git clone https://github.com/Wuang26/Kaorios-Toolbox.git tmp/kaorios
+    wget -O tmp/KaoriosToolbox.apk https://github.com/Wuang26/Kaorios-Toolbox/releases/download/V1.0.9/KaoriosToolbox-V1.0.9.apk
+    wget -O tmp/privapp_whitelist_com.kousei.kaorios.xml https://github.com/Wuang26/Kaorios-Toolbox/releases/download/V1.0.9/com.kousei.kaorios.xml
+    cp -rf build/portrom/images/system/system/framework/framework.jar tmp/kaorios/Toolbox-patcher/framework.jar
+    pushd tmp/kaorios/Toolbox-patcher/
+    chmod +x scripts/patcher.sh
+    ./scripts/patcher.sh framework.jar
+    popd
+    cp -rf tmp/kaorios/Toolbox-patcher/framework_patched.jar build/portrom/images/system/system/framework/framework.jar
+    mkdir build/portrom/images/system_ext/priv-app/KaoriosToolbox
+    cp -rf tmp/KaoriosToolbox.apk build/portrom/images/system_ext/priv-app/KaoriosToolbox/
+    cp -rf tmp/privapp_whitelist_com.kousei.kaorios.xml build/portrom/images/system_ext/etc/permissions/
+    chmod 755 build/portrom/images/system_ext/priv-app/KaoriosToolbox
+    chmod 644 build/portrom/images/system_ext/etc/permissions/privapp_whitelist_com.kousei.kaorios.xml
+    chmod 644 build/portrom/images/system_ext/priv-app/KaoriosToolbox/KaoriosToolbox.apk
+    echo "# Kaorios Toolbox required props" >> build/portrom/images/system/system/build.prop
+    echo "persist.sys.kaorios=kousei" >> build/portrom/images/system/system/build.prop
+    echo "ro.control_privapp_permissions=" >> build/portrom/images/system/system/build.prop
+fi
 
 targetOplusService=$(find build/portrom/images/ -name "oplus-services.jar")
-if [[ -f "build/${app_patch_folder}/patched/oplus-services.jar" ]];then
-    blue "Copying processed oplus-services.jar"
-    cp -rfv "build/${app_patch_folder}/patched/oplus-services.jar" "$targetOplusService"
+if [[ -f build/${app_patch_folder}/patched/oplus-services.jar ]];then
+    blue "复制已经处理过的oplus-services.jar"
+    cp -rfv build/${app_patch_folder}/patched/oplus-services.jar $targetOplusService
 
-elif [[ -f "$targetOplusService" ]];then
+elif [[ -f $targetOplusService ]];then
     blue "Removing GSM Restriction"
-    cp -rf "$targetOplusService" "tmp/$(basename "$targetOplusService").bak"
-    java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusService" -o tmp/OplusService
+    cp -rf $targetOplusService tmp/$(basename $targetOplusService).bak
+    java -jar bin/apktool/APKEditor.jar d -f -i $targetOplusService -o tmp/OplusService
     targetSmali=$(find tmp -type f -name "OplusBgSceneManager.smali")
-    python3 bin/patchmethod.py "$targetSmali" "-isGmsRestricted"
-    java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusService -o "build/${app_patch_folder}/patched/oplus-services.jar"
-    cp -rfv "build/${app_patch_folder}/patched/oplus-services.jar" "$targetOplusService"
+    python3 bin/patchmethod.py $targetSmali "-isGmsRestricted"
+    java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusService -o build/${app_patch_folder}/patched/oplus-services.jar
+    cp -rfv build/${app_patch_folder}/patched/oplus-services.jar $targetOplusService
 
 fi
 
