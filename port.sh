@@ -691,142 +691,147 @@ else
 fi
 
 # ==================================================
-# HAL-AWARE BALANCED AGGRESSIVE STACK – OP9 / OP9 PRO
-# Sustained Gaming Without Killing Battery
+# OnePlus 8/8Pro Perfoamnce Addons
+# Snapdragon 865 (SM8250)
 # ==================================================
 
-if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]] && \
-   [[ "${base_device_family}" == "OPSM8350" ]] && \
-   ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]); then
+if [[ "${portIsOOS}" == true ]] && \
+   [[ "${base_device_family}" == "OPSM8250" ]] && \
+   ([[ "${base_product_device}" == "OnePlus8Pro" ]] || [[ "${base_product_device}" == "OnePlus8" ]]); then
 
-    echo "Applying HAL-Aware Balanced Performance Tuning..."
+    RED='\033[0;31m'
+    NC='\033[0m'
 
-    # --------------------------------------------------
-    # 1️⃣ Power HAL Boost Duration Tuning (Safe)
-    # --------------------------------------------------
-    if [ -f build/portrom/images/vendor/etc/powerhint.xml ]; then
-        sed -i 's/<Duration>80<\/Duration>/<Duration>140<\/Duration>/g' \
-        build/portrom/images/vendor/etc/powerhint.xml
+    echo -e "${RED}Implementing Smoothness Addons (SM8250)...${NC}"
 
-        sed -i 's/<Duration>200<\/Duration>/<Duration>400<\/Duration>/g' \
-        build/portrom/images/vendor/etc/powerhint.xml
-    fi
+    SYSTEM_PATH="build/portrom/images/system/system"
+    VENDOR_PATH="build/portrom/images/vendor"
 
-    # --------------------------------------------------
-    # 2️⃣ Thermal Ramp Relax (NOT Disabling Thermal)
-    # --------------------------------------------------
-    if [ -f build/portrom/images/vendor/etc/thermal-engine.conf ]; then
-        sed -i 's/sampling 2000/sampling 3500/g' \
-        build/portrom/images/vendor/etc/thermal-engine.conf
-    fi
+    [ -f "$SYSTEM_PATH/build.prop" ] || exit 0
+    [ -f "$VENDOR_PATH/default.prop" ] || exit 0
 
-    # --------------------------------------------------
-    # 3️⃣ Governor Ramp-Up Optimization (Schedutil)
-    # --------------------------------------------------
-    mkdir -p build/portrom/images/vendor/etc/init
+    # ==================================================
+    # UI RENDERING IMPROVEMENTS
+    # ==================================================
 
-    cat <<EOF >> build/portrom/images/vendor/etc/init/op9_perf_tuning.rc
+    grep -q "debug.sf.latch_unsignaled" $VENDOR_PATH/default.prop || \
+    echo "debug.sf.latch_unsignaled=1" >> $VENDOR_PATH/default.prop
+
+    grep -q "ro.surface_flinger.max_frame_buffer_acquired_buffers" $VENDOR_PATH/default.prop || \
+    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> $VENDOR_PATH/default.prop
+
+    grep -q "debug.hwui.renderer" $VENDOR_PATH/default.prop || \
+    echo "debug.hwui.renderer=skiagl" >> $VENDOR_PATH/default.prop
+
+    grep -q "debug.egl.hw" $VENDOR_PATH/default.prop || \
+    echo "debug.egl.hw=1" >> $VENDOR_PATH/default.prop
+
+    # ==================================================
+    # ART RUNTIME BALANCE
+    # ==================================================
+
+    grep -q "dalvik.vm.usejit" $SYSTEM_PATH/build.prop || \
+    echo "dalvik.vm.usejit=true" >> $SYSTEM_PATH/build.prop
+
+    grep -q "dalvik.vm.heaptargetutilization" $SYSTEM_PATH/build.prop || \
+    echo "dalvik.vm.heaptargetutilization=0.75" >> $SYSTEM_PATH/build.prop
+
+    # ==================================================
+    # SCHEDULER RAMP POLISH (SAFE)
+    # ==================================================
+
+    rm -f $VENDOR_PATH/etc/init/op8_sched.rc
+    rm -f $VENDOR_PATH/etc/init/op8_boost.rc
+
+cat > $VENDOR_PATH/etc/init/op8_sched.rc << 'EOF'
 on boot
-    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us 500
-    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us 0
-    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us 500
-    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us 0
-    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/up_rate_limit_us 500
-    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/down_rate_limit_us 0
+    write /proc/sys/kernel/sched_migration_cost_ns 3500000
+    write /proc/sys/kernel/sched_upmigrate 85
+    write /proc/sys/kernel/sched_downmigrate 75
 EOF
 
-    # --------------------------------------------------
-    # 4️⃣ Mild GPU Stability Boost (No Max Clock Force)
-    # --------------------------------------------------
-    cat <<EOF >> build/portrom/images/vendor/etc/init/op9_gpu_tuning.rc
-on property:sys.boot_completed=1
-    write /sys/class/kgsl/kgsl-3d0/min_freq 400000000
-EOF
+    # ==================================================
+    # VERY LIGHT THERMAL RELAX (865 HANDLES THIS WELL)
+    # ==================================================
+
+    if [ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]; then
+        sed -i '0,/trip_point=46000/s/trip_point=46000/trip_point=47500/' $VENDOR_PATH/etc/thermal-engine.conf
+    fi
+
+    echo -e "${RED}Implemented Smoothness Addons (SM8250) ✓${NC}"
 
 fi
 
 # ==================================================
-# ULTIMATE PERFORMANCE STACK – OP9 / OP9 PRO
-# Gaming + Balanced + Battery + HAL Hints Combined
+# OnePlus 9/9 Pro Perforamnce booster
 # ==================================================
 
-if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]] && \
+if [[ "${portIsOOS}" == true ]] && \
    [[ "${base_device_family}" == "OPSM8350" ]] && \
    ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]); then
 
-    echo "Applying ULTIMATE SM8350 Performance Stack..."
+    RED='\033[0;31m'
+    NC='\033[0m'
 
-    # ----------------------------------
-    # SurfaceFlinger / Frame Pacing
-    # ----------------------------------
-    echo "debug.sf.latch_unsignaled=1" >> build/portrom/images/vendor/default.prop
-    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> build/portrom/images/vendor/default.prop
-    echo "ro.surface_flinger.set_idle_timer_ms=0" >> build/portrom/images/vendor/default.prop
-    echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
+    echo -e "${RED}Implementing Smoothness Addons...${NC}"
 
-    # ----------------------------------
-    # GPU / Rendering
-    # ----------------------------------
-    echo "debug.hwui.renderer=skiagl" >> build/portrom/images/vendor/default.prop
-    echo "debug.hwui.use_buffer_age=false" >> build/portrom/images/vendor/default.prop
-    echo "debug.egl.hw=1" >> build/portrom/images/vendor/default.prop
-    echo "debug.gralloc.enable_fb_ubwc=1" >> build/portrom/images/vendor/default.prop
-    echo "debug.mdpcomp.maxpermixer=2" >> build/portrom/images/vendor/default.prop
-    echo "debug.composition.type=gpu" >> build/portrom/images/vendor/default.prop
+    SYSTEM_PATH="build/portrom/images/system/system"
+    VENDOR_PATH="build/portrom/images/vendor"
 
-    # ----------------------------------
-    # Touch / Input
-    # ----------------------------------
-    echo "debug.input.highres_sampling=1" >> build/portrom/images/vendor/default.prop
-    echo "persist.sys.scrollingcache=3" >> build/portrom/images/system/system/build.prop
+    [ -f "$SYSTEM_PATH/build.prop" ] || exit 0
+    [ -f "$VENDOR_PATH/default.prop" ] || exit 0
 
-    # ----------------------------------
-    # CPU Scheduling / HAL Hints
-    # ----------------------------------
-    echo "sched.boost=1" >> build/portrom/images/vendor/default.prop
-    echo "persist.vendor.sched.boost.enable=1" >> build/portrom/images/vendor/default.prop
-    echo "persist.sys.use_performance_mode=1" >> build/portrom/images/system/system/build.prop
-    echo "persist.sys.game_mode=1" >> build/portrom/images/system/system/build.prop
+    # ==================================================
+    # UI RENDERING IMPROVEMENTS (NO POWER INTERFERENCE)
+    # ==================================================
 
-    # ----------------------------------
-    # ART Runtime
-    # ----------------------------------
-    echo "dalvik.vm.dex2oat64.enabled=true" >> build/portrom/images/system/system/build.prop
-    echo "dalvik.vm.usejit=true" >> build/portrom/images/system/system/build.prop
-    echo "dalvik.vm.heapsize=512m" >> build/portrom/images/system/system/build.prop
+    grep -q "debug.sf.latch_unsignaled" $VENDOR_PATH/default.prop || \
+    echo "debug.sf.latch_unsignaled=1" >> $VENDOR_PATH/default.prop
 
-    # ----------------------------------
-    # I/O Optimization
-    # ----------------------------------
-    echo "sys.io.scheduler=bfq" >> build/portrom/images/system/system/build.prop
-    echo "persist.sys.io.preload=1" >> build/portrom/images/system/system/build.prop
+    grep -q "ro.surface_flinger.max_frame_buffer_acquired_buffers" $VENDOR_PATH/default.prop || \
+    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> $VENDOR_PATH/default.prop
 
-    # ----------------------------------
-    # Thermal Soft Override (Still Safe)
-    # ----------------------------------
-    echo "persist.vendor.disable.thermal.control=1" >> build/portrom/images/system/system/build.prop
+    grep -q "debug.hwui.renderer" $VENDOR_PATH/default.prop || \
+    echo "debug.hwui.renderer=skiagl" >> $VENDOR_PATH/default.prop
 
-    # ----------------------------------
-    # Memory / LMK
-    # ----------------------------------
-    echo "ro.sys.fw.bg_apps_limit=60" >> build/portrom/images/system/system/build.prop
-    echo "persist.sys.purgeable_assets=1" >> build/portrom/images/system/system/build.prop
-    echo "ro.lmk.medium=1001" >> build/portrom/images/system/system/build.prop
-    echo "ro.lmk.critical=1201" >> build/portrom/images/system/system/build.prop
-    echo "persist.sys.zram_enabled=1" >> build/portrom/images/system/system/build.prop
+    grep -q "debug.egl.hw" $VENDOR_PATH/default.prop || \
+    echo "debug.egl.hw=1" >> $VENDOR_PATH/default.prop
 
-    # ----------------------------------
-    # Battery Optimizations (from battery mode)
-    # ----------------------------------
-    echo "pm.sleep_mode=1" >> build/portrom/images/system/system/build.prop
-    echo "ro.ril.disable.power.collapse=0" >> build/portrom/images/system/system/build.prop
-    echo "wifi.supplicant_scan_interval=180" >> build/portrom/images/system/system/build.prop
+    # ==================================================
+    # ART RUNTIME BALANCE
+    # ==================================================
 
-    # ----------------------------------
-    # Remove Debug Overhead
-    # ----------------------------------
-    echo "ro.kernel.android.checkjni=0" >> build/portrom/images/system/system/build.prop
-    echo "debug.atrace.tags.enableflags=0" >> build/portrom/images/system/system/build.prop
+    grep -q "dalvik.vm.usejit" $SYSTEM_PATH/build.prop || \
+    echo "dalvik.vm.usejit=true" >> $SYSTEM_PATH/build.prop
+
+    grep -q "dalvik.vm.heaptargetutilization" $SYSTEM_PATH/build.prop || \
+    echo "dalvik.vm.heaptargetutilization=0.75" >> $SYSTEM_PATH/build.prop
+
+    # ==================================================
+    # SCHEDULER RAMP TWEAK (SAFE)
+    # DOES NOT OVERRIDE POWERHAL
+    # ==================================================
+
+    rm -f $VENDOR_PATH/etc/init/op9_sched.rc
+    rm -f $VENDOR_PATH/etc/init/op9_boost.rc
+    rm -f $VENDOR_PATH/etc/init/op9_final_sched.rc
+
+cat > $VENDOR_PATH/etc/init/op9_sched.rc << 'EOF'
+on boot
+    write /proc/sys/kernel/sched_migration_cost_ns 4000000
+    write /proc/sys/kernel/sched_upmigrate 90
+    write /proc/sys/kernel/sched_downmigrate 80
+EOF
+
+    # ==================================================
+    # VERY LIGHT THERMAL RELAX (OPTIONAL BUT SAFE)
+    # ==================================================
+
+    if [ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]; then
+        sed -i '0,/trip_point=46000/s/trip_point=46000/trip_point=47000/' $VENDOR_PATH/etc/thermal-engine.conf
+    fi
+
+    echo -e "${RED}Implemented Smoothness Addons ✓${NC}"
 
 fi
 
