@@ -1,34 +1,14 @@
 #!/bin/bash
-
 # ColorOS_port project
 # For A-only and V/A-B (not tested) Devices
-# Based on Android 14 
-
+# Based on Android 14
 # Test Base ROM: OnePlus 9 Pro (OxygenOS_14.0.0.1920)
 # Test Port ROM: OnePlus 15 (OxygenOS_16.0.3.501), OnePlus ACE3V(ColorOS_14.0.1.621) Realme GT Neo5 240W(RMX3708_14.0.0.800)
-
 ###############################################################################
 # port.sh (ColorOS/OxygenOS/realme UI Porting Script)
-#
-# Purpose:
-#   - Use a Base ROM (BASEROM) as a foundation and integrate elements from 
-#     a source ROM (PORTROM) to create a bootable ROM package for daily use.
-#
-# Input (Basic):
-#   - $1: baserom   ... Official ROM for the base device (OTA/fastboot). URL supported.
-#   - $2: portrom   ... Source ROM to port (ColorOS/OOS/realme UI). URL supported.
-#   - $3: portrom2  ... Second source ROM (for mixed porting - optional).
-#   - $4: portparts ... Partition names to adopt from portrom2 during mixed port (optional).
-#
-# Important:
-#   - Most settings are controlled via `bin/port_config` (target partitions, repack method, etc.).
-#   - This script utilizes log functions (blue/yellow/green/error) from `functions.sh`.
 ###############################################################################
-
 build_user="Ozyern"
-build_host="@reimagine"
-
-# Receive BASEROM/PORTROM via external arguments
+build_host="@ReVork"
 baserom="$1"
 portrom="$2"
 portrom2="$3"
@@ -37,10 +17,98 @@ work_dir=$(pwd)
 tools_dir=${work_dir}/bin/$(uname)/$(uname -m)
 export PATH=$(pwd)/bin/$(uname)/$(uname -m)/:$(pwd)/otatools/bin/:$PATH
 
-# Import functions
 source functions.sh
-
 check unzip aria2c 7z zip java python3 zstd bc xmlstarlet
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GitHub Release auto-download logic (from toraidl/coloros_port)
+# ──────────────────────────────────────────────────────────────────────────────
+
+export REPO_OWNER="${REPO_OWNER:-toraidl}"
+export REPO_NAME="${REPO_NAME:-coloros_port}"
+export RELEASE_TAG="${RELEASE_TAG:-assets}"
+
+check_gh_cli() {
+  if ! command -v gh &> /dev/null ; then
+    error " 未找到 GitHub CLI (gh)。 " " GitHub CLI (gh) not found. "
+    return 1
+  fi
+  return 0
+}
+
+generate_asset_name() {
+  local file_path="$1"
+  local dir_path=$(dirname "$file_path")
+  local filename=$(basename "$file_path")
+  local asset_name=""
+
+  if [[ "$dir_path" == *"devices/"* ]]; then
+    local prefix=$(echo "$dir_path" | sed 's/.*devices\///' | cut -d '/' -f1)
+    asset_name="${prefix}_${filename}"
+  elif [[ "$dir_path" == *"assets"* ]]; then
+    asset_name="assets_${filename}"
+  else
+    asset_name="$filename"
+  fi
+
+  echo "$asset_name"
+}
+
+download_from_release() {
+  local file_path="$1"
+
+  if [[ ! -f "$file_path" ]]; then
+    local asset_name=$(generate_asset_name "$file_path")
+    local download_url="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${RELEASE_TAG}/${asset_name}"
+
+    blue " 尝试从 GitHub Release 下载: $file_path " " Attempting download from GitHub Release: $file_path "
+    blue " GitHub Asset Name: $asset_name " " GitHub Asset Name: $asset_name "
+    blue " Download URL: $download_url " " Download URL: $download_url "
+
+    if check_gh_cli ; then
+      mkdir -p "$(dirname "$file_path")"
+      if gh release download "$RELEASE_TAG" --repo "$REPO_OWNER/$REPO_NAME" --pattern "$asset_name" --dir "$(dirname "$file_path")" 2>/dev/null ; then
+        local downloaded_file=$(find "$(dirname "$file_path")" -name "$asset_name" -type f -print -quit)
+        if [[ -f "$downloaded_file" ]]; then
+          mv "$downloaded_file" "$file_path"
+          green "使用 gh 下载成功: $file_path" "Downloaded successfully via gh: $file_path"
+          return 0
+        fi
+      fi
+    fi
+
+    mkdir -p "$(dirname "$file_path")"
+    if curl -L -o "$file_path.tmp" "$download_url" && [[ -s "$file_path.tmp" ]]; then
+      mv "$file_path.tmp" "$file_path"
+      green "使用 curl 下载成功: $file_path" "Downloaded successfully via curl: $file_path"
+      return 0
+    else
+      rm -f "$file_path.tmp"
+      yellow "下载失败: $file_path" "Download failed: $file_path"
+      yellow "请手动放置文件或上传到 Release: $asset_name" "Please place the file manually or upload to release: $asset_name"
+      return 1
+    fi
+  fi
+  return 0
+}
+
+ensure_resource_available() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    return 0
+  fi
+
+  blue "资源缺失，正在尝试从 GitHub 下载: $path" "Resource missing, attempting GitHub download: $path"
+
+  if download_from_release "$path"; then
+    green "资源已获取: $path" "Resource acquired: $path"
+    return 0
+  else
+    yellow "无法自动获取资源: $path" "Could not auto-fetch resource: $path"
+    yellow "请手动放置文件到: $path" "Please place the file manually at: $path"
+    return 1
+  fi
+}
 
 # Configurable settings via `bin/port_config`
 port_partition=$(grep "partition_to_port" bin/port_config |cut -d '=' -f 2)
@@ -51,9 +119,6 @@ pack_with_dsu=$(grep "pack_with_dsu" bin/port_config | cut -d '=' -f 2)
 pack_method=$(grep "pack_method" bin/port_config | cut -d '=' -f 2)
 ddr_type=$(grep "ddr_type" bin/port_config | cut -d '=' -f 2)
 
-# `pack_type` serves as a marker for how partitions are repacked later.
-# - EXT  : Intended for regeneration with ext4 tools
-# - EROFS: Intended for regeneration with EROFS
 if [[ ${repackext4} == true ]]; then
     pack_type=EXT
 else
@@ -64,7 +129,6 @@ fi
 if [ ! -f "${baserom}" ] && [ "$(echo "$baserom" | grep http)" != "" ];then
     blue "Base ROM is a URL. Starting download..." "Download link detected, start downloading.."
     aria2c --async-dns=false --max-download-limit=1024M --file-allocation=none -s10 -x10 -j10 "${baserom}"
-    # URLs with `?t=...` can mess up filenames; strip query parts after saving
     baserom=$(basename "${baserom}" | sed 's/\?t.*//')
     if [ ! -f "${baserom}" ];then
         error "Download failed" "Download error!"
@@ -75,11 +139,9 @@ else
     error "Base ROM argument is invalid" "BASEROM: Invalid parameter"
     exit 1
 fi
-
 if [ ! -f "${portrom}" ] && [ "$(echo "${portrom}" | grep http)" != "" ];then
     blue "Port source ROM is a URL. Starting download..." "Download link detected, start downloading.."
     aria2c --async-dns=false --max-download-limit=1024M --file-allocation=none -s10 -x10 -j10 "${portrom}"
-    # URLs with `?t=...` can mess up filenames; strip query parts after saving
     portrom=$(basename "${portrom}" | sed 's/\?t.*//')
     if [ ! -f "${portrom}" ];then
         error "Download failed" "Download error!"
@@ -90,16 +152,12 @@ else
     error "Port source ROM argument is invalid" "PORTROM: Invalid parameter"
     exit 1
 fi
-
 if [ "$(echo "$baserom" | grep ColorOS_)" != "" ];then
     device_code=$(basename "$baserom" | cut -d '_' -f 2)
 else
     device_code="op8t"
 fi
-
 blue "Validating Base ROM" "Validating BASEROM.."
-
-# Determine Base ROM format (payload / *.new.dat.br / *.img)
 if unzip -l "${baserom}" | grep -q "payload.bin"; then
     baserom_type="payload"
     oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2)
@@ -113,12 +171,8 @@ else
           "payload.bin / *.br / *.img not found, please use official OTA or fastboot package."
     exit 1
 fi
-
 green "Base ROM Format: ${baserom_type}" "Detected base package type: ${baserom_type}"
-
 blue "Validating Port ROM" "Validating PORTROM.."
-
-# Determine Port source ROM format (payload / *.img)
 if unzip -l "${portrom}" | grep -q "payload.bin"; then
     portrom_type="payload"
 elif unzip -l "${portrom}" | grep -Eq "\.img$"; then
@@ -128,8 +182,6 @@ else
           "payload.bin or *.img not found, please use an official ROM package containing system.img as PORTROM."
     exit 1
 fi
-
-# Extract ROM version info if metadata exists (otherwise estimate from filename)
 if unzip -l "${portrom}" | grep -q "META-INF/com/android/metadata"; then
     version_name=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2)
     ota_version=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "ota_version=" | cut -d= -f2)
@@ -137,28 +189,23 @@ else
     version_name="$(basename "${portrom%.*}")"
     ota_version="V16.0.0"
 fi
-
 green "Basic ROM validation successful: ${portrom_type}" "ROM validation passed. Type: ${portrom_type}"
 [[ -n "${version_name}" ]] && echo "Version Name: ${version_name}"
-
-
 if [[ -n "$portrom2" ]];then
     mix_port=true
 fi
-
 if [[ -n "$portparts" ]];then
     mix_port_part=($portparts)
 else
     mix_port_part=("my_stock" "my_region" "my_manifest" "my_product")
 fi
-
 if [[ "$mix_port" == true ]];then
     blue "Mixed Port Mode"
     blue "Validating second Port source ROM" "Validating PORTROM.."
-    if unzip -l "${portrom2}" | grep  -q "payload.bin"; then
+    if unzip -l "${portrom2}" | grep -q "payload.bin"; then
         green "Validation for second ROM successful" "ROM validation passed."
         portrom2_type="payload"
-	version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata | grep "version_name=" | cut -d = -f2)
+version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata | grep "version_name=" | cut -d = -f2)
     elif unzip -l "${portrom2}" | grep -Eq "\.img$"; then
         portrom2_type="img"
         version_name2="$(basename "${portrom2%.*}")"
@@ -169,51 +216,39 @@ if [[ "$mix_port" == true ]];then
     fi
 fi
 green "Basic ROM validation successful" "ROM validation passed."
-
 blue "Cleaning up temporary working files" "Cleaning up.."
-
 rm -rf app
 rm -rf tmp
 rm -rf config
 rm -rf build/baserom/
 rm -rf build/portrom/
 find . -type d -name 'ColorOS_*' |xargs rm -rf
-
 green "Cleanup complete" "Files cleaned up."
 mkdir -p build/baserom/images/
-
 mkdir -p build/portrom/images/
-
-mkdir tmp 
+mkdir tmp
 export TMPDIR=$work_dir/tmp/
 # ===== Base ROM Extraction =====
 if [[ ${baserom_type} == 'payload' ]]; then
-    blue "Extracting Base ROM [payload.bin]" "Extracting files from BASEROM [payload.bin]"   
+    blue "Extracting Base ROM [payload.bin]" "Extracting files from BASEROM [payload.bin]"
     payload-dumper --out build/baserom/images/ "${baserom}"
     green "Base ROM extraction complete [payload.bin]" "[payload.bin] extracted."
-
 elif [[ ${baserom_type} == 'br' ]]; then
     blue "Extracting Base ROM [*.new.dat.br]" "Extracting files from BASEROM [*.new.dat.br]"
     unzip -q "${baserom}" -d build/baserom || \
         error "Failed to extract Base ROM [new.dat.br]" "Extracting [new.dat.br] error"
     green "Base ROM extraction complete [new.dat.br]" "[new.dat.br] extracted."
-
     blue "Unpacking and converting Base ROM [new.dat.br]" "Unpacking BASEROM [new.dat.br]"
-    # Pre-processing to generate *.img from *.new.dat.br.
-    # Some ROMs use suffixes like `system.new.dat.1.br`; normalize names for later reference.
     for file in build/baserom/*; do
         filename=$(basename -- "$file")
         extension="${filename##*.}"
         name="${filename%.*}"
-
         if [[ $name =~ [0-9] ]]; then
             new_name=$(echo "$name" | sed 's/[0-9]\+\(\.[^0-9]\+\)/\1/g' | sed 's/\.\./\./g')
             mv -fv "$file" "build/baserom/${new_name}.${extension}"
         fi
     done
-
-    # Decrypt with `brotli` -> Sparse conversion with `sdat2img` to create `.img` for each partition
-    for i in ${super_list}; do 
+    for i in ${super_list}; do
         if [[ -f build/baserom/${i}.new.dat.br ]]; then
             ${tools_dir}/brotli -d build/baserom/${i}.new.dat.br >/dev/null 2>&1
             python3 ${tools_dir}/sdat2img.py \
@@ -224,13 +259,11 @@ elif [[ ${baserom_type} == 'br' ]]; then
         fi
     done
     green "Base ROM unpacking and conversion complete [new.dat.br]" "[new.dat.br] unpack complete."
-
 elif [[ ${baserom_type} == 'img' ]]; then
     blue "Base ROM format: [img] (extracting .img files)" "Extracting BASEROM containing .img files"
     mkdir -p build/baserom/images/
     unzip -q "${baserom}" -d build/baserom/tmp/ || \
         error "Failed to extract Base ROM" "Extracting BASEROM error"
-    # Consolidate `.img` files from extraction directory to `build/baserom/images/`
     find build/baserom/tmp/ -type f -name "*.img" -exec mv -fv {} build/baserom/images/ \;
     rm -rf build/baserom/tmp/
     green "Base ROM extraction complete [*.img]" "[*.img] extracted."
@@ -238,64 +271,44 @@ else
     error "Unknown Base ROM format: ${baserom_type}" "Unknown base package type: ${baserom_type}"
     exit 1
 fi
-
-
 # ===== Port Source ROM Extraction =====
-if [[ -n ${version_name} ]] && [[ -d build/${version_name} ]]; then 
+if [[ -n ${version_name} ]] && [[ -d build/${version_name} ]]; then
     blue "Port source ROM cache detected: build/${version_name} (reusing)" \
          "Cached ${version_name} folder detected, copying..."
     IFS=',' read -ra PARTS <<< "$port_partition"
     for i in "${PARTS[@]}"; do
         cp -rfv "build/${version_name}/${i}.img" build/portrom/images/
     done
-
 else
     mkdir -p build/${version_name}/ build/portrom/images/
-
     if [[ ${portrom_type} == 'payload' ]]; then
         blue "Extracting Port source ROM [payload.bin]" "Extracting PORTROM [payload.bin]"
         payload-dumper --partitions "${port_partition}" --out "build/${version_name}/" "${portrom}"
         cp -rfv build/${version_name}/*.img build/portrom/images/
         green "Port source ROM extraction complete [payload.bin]" "[payload.bin] extracted."
-
     elif [[ ${portrom_type} == 'img' ]]; then
         blue "Port source ROM format: [img] (extracting required .img files only)" "Extracting PORTROM containing .img files"
-        # Convert `port_partition` (comma separated) to array
         IFS=',' read -ra PARTS <<< "$port_partition"
-
-        # List target files for `unzip` (including a/b slot names)
         declare -a unzip_targets=()
         for part in "${PARTS[@]}"; do
           unzip_targets+=("${part}.img" "${part}_a.img" "${part}_b.img")
         done
-
         blue "Selectively extracting only required .img files" "Extracting specific img files from PORTROM"
-
-        # Extract only specified `.img` partitions (avoid full ROM extraction)
         unzip -q "${portrom}" "${unzip_targets[@]}" -d "build/${version_name}/" || \
         error "Failed to extract specified .img files (verify if ${port_partition} exists in ROM)" \
           "Failed to extract specified img files from PORTROM."
-
          green "Specified partition extraction successful" "Selected partitions extracted successfully."
         find "build/${version_name}/" -type f -name "*.img" -exec cp -fv {} build/portrom/images/ \;
         green "Port source ROM extraction complete [*.img]" "[*.img] extracted."
-
     else
         error "Unknown Port source ROM format: ${portrom_type}" "Unknown port package type: ${portrom_type}"
         exit 1
     fi
 fi
-
 if [[ -n "${version_name2}" ]] && [[ -d "build/${version_name2}" ]];then
     blue "Second Port source ROM cache detected: build/${version_name2} (reusing)" "cached ${version_name2} folder detected, copying"
-    #IFS=',' read -ra PARTS <<< "$port_partition"
     for i in "${mix_port_part[@]}"; do
-        # if [[ -f "build/${version_name}/${i}_patched.img" ]];then
-        #     skip_list2+=("$i")
-        #     cp -rfv "build/${version_name}/${i}_patched.img" "build/portrom/images/${i}.img"
-        #else
-            cp -rfv "build/${version_name2}/${i}.img" build/portrom/images/
-        #fi
+        cp -rfv "build/${version_name2}/${i}.img" build/portrom/images/
     done
 elif [[ -n "${version_name2}" ]];then
     if [[ "${portrom2_type}" == 'payload' ]]; then
@@ -307,75 +320,41 @@ elif [[ -n "${version_name2}" ]];then
         done
     elif [[ "${portrom2_type}" == 'img' ]]; then
         blue "Second Port source ROM format: [img] (extracting required .img files only)" "Extracting PORTROM containing .img files"
-        # Convert `port_partition` (comma separated) to array
         IFS=',' read -ra PARTS <<< "$port_partition"
-
-        # List target files for `unzip` (including a/b slot names)
         declare -a unzip_targets=()
         for part in "${PARTS[@]}"; do
           unzip_targets+=("${part}.img" "${part}_a.img" "${part}_b.img")
         done
-
         blue "Selectively extracting only required .img files" "Extracting specific img files from PORTROM"
-
-        # Extract only specified `.img` partitions (avoid full ROM extraction)
         unzip -q "${portrom2}" "${unzip_targets[@]}" -d "build/${version_name2}/" || \
         error "Failed to extract specified .img files (verify if ${port_partition} exists in ROM)" \
           "Failed to extract specified img files from PORTROM."
-
          green "Specified partition extraction successful" "Selected partitions extracted successfully."
         find "build/${version_name2}/" -type f -name "*.img" -exec cp -fv {} build/portrom/images/ \;
         green "Port source ROM extraction complete [*.img]" "[*.img] extracted."
     fi
 fi
-
 if [[ -n "${version_name}" ]] && [[ -n "${version_name2}" ]];then
     app_patch_folder="${version_name2}"
 elif [[ -n "${version_name}" ]];then
     app_patch_folder="${version_name}"
 fi
-
 for part in system product system_ext my_product my_manifest;do
     extract_partition "build/baserom/images/${part}.img" build/baserom/images
 done
-
-###############################################################################
-# Image Consolidation (Moving BASEROM -> PORTROM side)
-#
-# Some partitions present on the Base ROM side (vendor/odm etc.) are moved
-# to the port side working directory (build/portrom/images/).
-# This prepares for repacking the super.img using a unified set of images on the "PORTROM side".
-###############################################################################
-# Move those to portrom folder. We need to pack those imgs into final port rom
 for image in vendor odm my_company my_preload system_dlkm vendor_dlkm my_engineering;do
     if [ -f "build/baserom/images/${image}.img" ];then
         mv -f "build/baserom/images/${image}.img" "build/portrom/images/${image}.img"
-
-        # Extracting vendor at first, we need to determine which super parts to pack from Baserom fstab.
         extract_partition "build/portrom/images/${image}.img" build/portrom/images/
-
     fi
 done
-
 if [ ! -d "build/portrom/images/system_dlkm" ];then
         super_list="system system_ext vendor product my_product odm my_engineering my_stock my_heytap my_carrier my_region my_bigball my_manifest my_company my_preload"
 fi
-# Extract the partitions list that need to pack into the super.img
-#super_list=$(sed '/^#/d;/^\//d;/overlay/d;/^$/d;/\^loop/d' build/portrom/images/vendor/etc/fstab.qcom \
-#                | awk '{ print $1}' | sort | uniq)
-
-# Expand images (unpack each partition's `.img` into directories)
 green "Starting logical partition expansion" "Starting extract portrom partition from img"
 for part in ${super_list};do
-    # If in skip_list1 / skip_list2, skip extraction (assuming patched image is reused)
-#    if [[ " ${skip_list1[@]} " =~ " ${part} " ]] || [[ " ${skip_list2[@]} " =~ " ${part} " ]]; then
- #       yellow "Skipping partition [${part}] (reusing patched version)" "Skip [${part}], already reused from patched image"
-   #      continue
-   # fi
-    # Skip already extracted parts from BASEROM
     if [[ ! -d "build/portrom/images/${part}" ]]; then
         blue "Extracting [${part}]..." "Extracting [${part}]"
-
         (
         extract_partition "${work_dir}/build/portrom/images/${part}.img" "${work_dir}/build/portrom/images/" && \
         rm -rf "${work_dir}/build/baserom/images/${part}.img"
@@ -386,38 +365,25 @@ for part in ${super_list};do
 done
 wait
 rm -rf config
-
 blue "Retrieving ROM build info" "Fetching ROM build prop."
-
-# Android Version
 base_android_version=$(< build/baserom/images/system/system/build.prop grep "ro.build.version.release" |awk 'NR==1' |cut -d '=' -f 2)
 port_android_version=$(< build/portrom/images/system/system/build.prop grep "ro.build.version.release" |awk 'NR==1' |cut -d '=' -f 2)
 green "Android: Base [Android ${base_android_version}] / Source [Android ${port_android_version}]" "Android Version: BASEROM:[Android ${base_android_version}], PORTROM [Android ${port_android_version}]"
-
-# SDK Version
 base_android_sdk=$(< build/baserom/images/system/system/build.prop grep "ro.system.build.version.sdk" |awk 'NR==1' |cut -d '=' -f 2)
 port_android_sdk=$(< build/portrom/images/system/system/build.prop grep "ro.system.build.version.sdk" |awk 'NR==1' |cut -d '=' -f 2)
 green "SDK: Base [SDK ${base_android_sdk}] / Source [SDK ${port_android_sdk}]" "SDK Verson: BASEROM: [SDK ${base_android_sdk}], PORTROM: [SDK ${port_android_sdk}]"
-
-# ROM Version
-base_rom_version=$(<  build/baserom/images/my_manifest/build.prop grep "ro.build.display.ota" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 2-)
-port_rom_version=$(<  build/portrom/images/my_manifest/build.prop grep "ro.build.display.ota" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 2-)
+base_rom_version=$(< build/baserom/images/my_manifest/build.prop grep "ro.build.display.ota" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 2-)
+port_rom_version=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.display.ota" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 2-)
 green "ROM: Base [${base_rom_version}] / Source [${port_rom_version}]" "ROM Version: BASEROM: [${base_rom_version}], PORTROM: [${port_rom_version}] "
-
-# ColorOS (and terminal identification) info retrieval
-
 base_device_code=$(< build/baserom/images/my_manifest/build.prop grep "ro.oplus.version.my_manifest" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 1)
 port_device_code=$(< build/portrom/images/my_manifest/build.prop grep "ro.oplus.version.my_manifest" | awk 'NR==1' | cut -d '=' -f 2 | cut -d "_" -f 1)
-
 green "Device Code: Base [${base_device_code}] / Source [${port_device_code}]" "Device Code: BASEROM: [${base_device_code}], PORTROM: [${port_device_code}]"
 base_product_device=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.device" |awk 'NR==1' |cut -d '=' -f 2)
 port_product_device=$(< build/portrom/images/my_manifest/build.prop grep "ro.product.device" |awk 'NR==1' |cut -d '=' -f 2)
 green "product.device: Base [${base_product_device}] / Source [${port_product_device}]" "Product Device: BASEROM: [${base_product_device}], PORTROM: [${port_product_device}]"
-
 base_product_name=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.name" |awk 'NR==1' |cut -d '=' -f 2)
 port_product_name=$(< build/portrom/images/my_manifest/build.prop grep "ro.product.name" |awk 'NR==1' |cut -d '=' -f 2)
 green "product.name: Base [${base_product_name}] / Source [${port_product_name}]" "Product Name: BASEROM: [${base_product_name}], PORTROM: [${port_product_name}]"
-
 base_product_model=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.model" |awk 'NR==1' |cut -d '=' -f 2)
 port_product_model=$(< build/portrom/images/my_manifest/build.prop grep "ro.product.model" |awk 'NR==1' |cut -d '=' -f 2)
 green "product.model: Base [${base_product_model}] / Source [${port_product_model}]" "Product Model: BASEROM: [${base_product_model}], PORTROM: [${port_product_model}]"
@@ -426,46 +392,29 @@ if grep -q "ro.vendor.oplus.market.name" build/baserom/images/my_manifest/build.
 else
     base_market_name=$(< build/portrom/images/odm/build.prop grep "ro.vendor.oplus.market.name" |awk 'NR==1' |cut -d '=' -f 2)
 fi
-
-port_market_name=$(grep -r --include="*.prop"  --exclude-dir="odm" "ro.vendor.oplus.market.name" build/portrom/images/ | head -n 1 | awk "NR==1" | cut -d "=" -f2)
-
+port_market_name=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.vendor.oplus.market.name" build/portrom/images/ | head -n 1 | awk "NR==1" | cut -d "=" -f2)
 green "Market Name: Base [${base_market_name}] / Source [${port_market_name}]" "Market Name: BASEROM: [${base_market_name}], PORTROM: [${port_market_name}]"
-
 base_my_product_type=$(< build/baserom/images/my_product/build.prop grep "ro.oplus.image.my_product.type" |awk 'NR==1' |cut -d '=' -f 2)
 port_my_product_type=$(< build/portrom/images/my_product/build.prop grep "ro.oplus.image.my_product.type" |awk 'NR==1' |cut -d '=' -f 2)
-
 green "my_product Type: Base [${base_my_product_type}] / Source [${port_my_product_type}]" "My_Product Type: BASEROM: [${base_my_product_type}], PORTROM: [${port_my_product_type}]"
-
 target_display_id=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.display.id=" |awk 'NR==1' |cut -d '=' -f 2 | sed "s/$port_device_code/$base_device_code/g")
-
-target_display_id_show=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.display.id.show" |awk 'NR==1' |cut -d '=' -f 2 | sed "s/$port_device_code/$base_device_code/g") 
-
+target_display_id_show=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.display.id.show" |awk 'NR==1' |cut -d '=' -f 2 | sed "s/$port_device_code/$base_device_code/g")
 base_vendor_brand=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.vendor.brand" |awk 'NR==1' |cut -d '=' -f 2)
 port_vendor_brand=$(< build/portrom/images/my_manifest/build.prop grep "ro.product.vendor.brand" |awk 'NR==1' |cut -d '=' -f 2)
-
 base_product_first_api_level=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.first_api_level" |awk 'NR==1' |cut -d '=' -f 2)
 port_product_first_api_level=$(< build/portrom/images/my_manifest/build.prop grep "ro.product.first_api_level" |awk 'NR==1' |cut -d '=' -f 2)
-
 base_device_family=$(< build/baserom/images/my_product/build.prop grep "ro.build.device_family" |awk 'NR==1' |cut -d '=' -f 2)
 target_device_family=$(< build/portrom/images/my_product/build.prop grep "ro.build.device_family" |awk 'NR==1' |cut -d '=' -f 2)
-
-# Security Patch Date
 portrom_version_security_patch=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.version.security_patch" |awk 'NR==1' |cut -d '=' -f 2 )
 port_oplusrom_version=$(< build/portrom/images/my_product/build.prop grep "ro.build.version.oplusrom.confidential" |awk 'NR==1' |cut -d '=' -f 2 )
-
-#regionmark=$(< build/portrom/images/my_bigball/etc/region/build.prop grep "ro.vendor.oplus.regionmark" |awk 'NR==1' |cut -d '=' -f 2)
 regionmark=$(find build/portrom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d '=' -f2)
-
 base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d '=' -f2)
 if [ -z "$base_regionmark" ]; then
   base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.oplus.image.my_region.type=" {} \; -quit | cut -d '=' -f2 | cut -d '_' -f1)
 fi
-
 vendor_cpu_abilist32=$(< build/portrom/images/vendor/build.prop grep "ro.vendor.product.cpu.abilist32" |awk 'NR==1' |cut -d '=' -f 2 )
-
 base_area=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.area" build/baserom/images/ | head -n1 | cut -d "=" -f2 | tr -d '\r')
 base_brand=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.brand" build/baserom/images/ | head -n1 | cut -d "=" -f2 | tr -d '\r')
-
 baseIsColorOSCN=false
 baseIsOOS=false
 baseIsRealmeUI=false
@@ -476,21 +425,16 @@ elif [[ "$base_brand" == "realme" ]];then
 elif [[ "$base_area" == "gdpr" && "$base_brand" == "oneplus" ]]; then
     baseIsOOS=true
 fi
-
 port_area=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.area" build/portrom/images/ | head -n1 | cut -d "=" -f2 | tr -d '\r')
 port_brand=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.brand" build/portrom/images/ | head -n1 | cut -d "=" -f2 | tr -d '\r')
-
 portIsColorOSGlobal=false
 portIsOOS=false
 portIsColorOS=false
 portIsRealmeUI=false
-
 port_oplusrom_version=$(get_oplusrom_version)
-
 if [[ "$port_brand" == "realme" ]];then
     portIsRealmeUI=true
 fi
-
 if [[ "$port_area" == "gdpr" && "$port_brand" != "oneplus" ]]; then
     portIsColorOSGlobal=true
 elif [[ "$port_area" == "gdpr" && "$port_brand" == "oneplus" ]]; then
@@ -498,34 +442,23 @@ elif [[ "$port_area" == "gdpr" && "$port_brand" == "oneplus" ]]; then
 else
     portIsColorOS=true
 fi
-
-
-if grep -q "ro.build.ab_update=true" build/portrom/images/vendor/build.prop;  then
+if grep -q "ro.build.ab_update=true" build/portrom/images/vendor/build.prop; then
     is_ab_device=true
 else
     is_ab_device=false
-
 fi
-
 if [[ ! -f build/portrom/images/system/system/bin/app_process32 && -n "$vendor_cpu_abilist32" ]]; then
-    blue "64bit only protrom detected. convert vendor to 64bit-only  "
+    blue "64bit only protrom detected. convert vendor to 64bit-only "
     sed -i "s/ro.vendor.product.cpu.abilist=.*/ro.vendor.product.cpu.abilist=arm64-v8a/g" build/portrom/images/vendor/build.prop
     sed -i "s/ro.vendor.product.cpu.abilist32=.*/ro.vendor.product.cpu.abilist32=/g" build/portrom/images/vendor/build.prop
     sed -i "s/ro.zygote=.*/ro.zygote=zygote64/g" build/portrom/images/vendor/default.prop
-    #cp -rfv devices/32-libs/* build/portrom/images/
 fi
-
 if [[ -f "devices/${base_product_device}/config" ]];then
    source "devices/${base_product_device}/config"
 fi
-#rm -rf build/portrom/images/my_manifest
-#cp -rf build/baserom/images/my_manifest build/portrom/images/
-#cp -rf build/baserom/images/config/my_manifest_* build/portrom/images/config/
 sed -i "s/ro.build.display.id=.*/ro.build.display.id=${target_display_id}/g" build/portrom/images/my_manifest/build.prop
 sed -i "s/ro.product.first_api_level=.*/ro.product.first_api_level=${base_product_first_api_level}/g" build/portrom/images/my_manifest/build.prop
-
-
-if  ! grep -q  "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop ;then
+if ! grep -q "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop ;then
     echo "ro.build.display.id.show=$target_display_id_show" >> build/portrom/images/my_manifest/build.prop
 else
     sed -i "s/ro.build.display.id.show=.*/ro.build.display.id.show=${target_display_id_show}/g" build/portrom/images/my_manifest/build.prop
@@ -533,138 +466,99 @@ fi
 sed -i '/ro.build.version.release=/d' build/portrom/images/my_manifest/build.prop
 sed -i "s/ro.vendor.oplus.market.name=.*/ro.vendor.oplus.market.name=${base_market_name}/g" build/portrom/images/my_manifest/build.prop
 sed -i "s/ro.vendor.oplus.market.enname=.*/ro.vendor.oplus.market.enname=${base_market_name}/g" build/portrom/images/my_manifest/build.prop
-
-
 sed -i '/ro.oplus.watermark.betaversiononly.enable=/d' build/portrom/images/my_manifest/build.prop
-
-
 BASE_PROP="${work_dir}/build/baserom/images/my_manifest/build.prop"
 PORT_PROP="${work_dir}/build/portrom/images/my_manifest/build.prop"
-
 KEYS="\.name= \.model= \.manufacturer= \.device= \.brand= \.my_product.type="
-
 for k in $KEYS; do
     grep "$k" "$BASE_PROP" | while IFS='=' read -r key value; do
         if [[ "$key" == "ro.product.vendor.brand" ]]; then
-            # Special case: brand is forcibly written as OPPO
-            sed -i "s|^$key=.*|$key=OPPO|" "$PORT_PROP" 
+            sed -i "s|^$key=.*|$key=OPPO|" "$PORT_PROP"
         elif grep -q "^$key=" "$PORT_PROP"; then
             sed -i "s|^$key=.*|$key=$value|" "$PORT_PROP"
         fi
     done
 done
-# OOS 16 mixed port
 if [[ -n "$vendor_cpu_abilist32" ]] ;then
     sed -i "/ro.zygote=zygote64/d" build/portrom/images/my_manifest/build.prop
 fi
-# `default.prop` may not exist on some devices
 for prop_file in $(find build/portrom/images/vendor/ -name "*.prop"); do
     vndk_version=$(< "$prop_file" grep "ro.vndk.version" | awk "NR==1" | cut -d '=' -f 2)
     if [ -n "$vndk_version" ]; then
         yellow "ro.vndk.version is $vndk_version" "ro.vndk.version found in $prop_file: $vndk_version"
-        break  
+        break
     fi
 done
 base_vndk=$(find build/baserom/images/system_ext/apex -type f -name "com.android.vndk.v${vndk_version}.apex")
 port_vndk=$(find build/portrom/images/system_ext/apex -type f -name "com.android.vndk.v${vndk_version}.apex")
-
 if [ ! -f "${port_vndk}" ]; then
     yellow "apex not found, copying from Base ROM" "target apex is missing, copying from baserom"
     cp -rf "${base_vndk}" "build/portrom/images/system_ext/apex/"
 fi
 find build/portrom/images -name "build.prop" -exec sed -i "s/ro.build.version.security_patch=.*/ro.build.version.security_patch=${portrom_version_security_patch}/g" {} \;
-
-
 ###############################################################################
 # Patches for services.jar / framework.jar / oplus-services.jar
-#
-# Addresses common device-specific issues (signatures, permissions, Face Unlock, etc.) 
-# through smali patches or replacements.
-# Reuses existing output in `build/${app_patch_folder}/patched/` to speed up processing.
 ###############################################################################
 old_face_unlock_app=$(find build/baserom/images/my_product -name "OPFaceUnlock.apk")
 if [[ -f build/${app_patch_folder}/patched/services.jar ]];then
     blue "Copying processed services.jar"
     cp -rfv build/${app_patch_folder}/patched/services.jar build/portrom/images/system/system/framework/services.jar
-elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then 
+elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
     if [[ ! -d tmp ]];then
         mkdir -p tmp/
     fi
-
     mkdir -p tmp/services/
     cp -rf build/portrom/images/system/system/framework/services.jar tmp/services.jar
     framework_res=$(find build/portrom/images/ -type f -name "framework-res.apk")
     extra_args=""
-
     if [[ -f "$framework_res" ]];then
         extra_args="-framework $framework_res"
     fi
-
     java -jar bin/apktool/APKEditor.jar d -f -i tmp/services.jar -o tmp/services
-
-
     smalis=("ScanPackageUtils")
     methods=("--assertMinSignatureSchemeIsValid")
-
     for (( i=0; i<${#smalis[@]}; i++ )); do
         smali="${smalis[i]}"
         method="${methods[i]}"
-        
         target_file=$(find tmp/services -type f -name "${smali}.smali")
-        echo "smali is $smali"
-        echo "target_file is $target_file"
-        
         if [[ -f "$target_file" ]]; then
             for single_method in $method; do
                 python3 bin/patchmethod.py "$target_file" "$single_method" && echo "${target_file} patched successfully"
             done
         fi
     done
-
-    target_method='getMinimumSignatureSchemeVersionForTargetSdk' 
+    target_method='getMinimumSignatureSchemeVersionForTargetSdk'
     old_smali_dir=""
     declare -a smali_dirs
-
     while read -r smali_file; do
         smali_dir=$(echo "$smali_file" | cut -d "/" -f 3)
-
         if [[ $smali_dir != $old_smali_dir ]]; then
             smali_dirs+=("$smali_dir")
         fi
-
         method_line=$(grep -n "$target_method" "$smali_file" | cut -d ':' -f 1)
         register_number=$(tail -n +"$method_line" "$smali_file" | grep -m 1 "move-result" | tr -dc '0-9')
         move_result_end_line=$(awk -v ML=$method_line 'NR>=ML && /move-result /{print NR; exit}' "$smali_file")
         orginal_line_number=$method_line
         replace_with_command="const/4 v${register_number}, 0x0"
-        { sed -i "${orginal_line_number},${move_result_end_line}d" "$smali_file" && sed -i "${orginal_line_number}i\\${replace_with_command}" "$smali_file"; } && blue "${smali_file}  Patch successful" "${smali_file} patched"
+        { sed -i "${orginal_line_number},${move_result_end_line}d" "$smali_file" && sed -i "${orginal_line_number}i\\${replace_with_command}" "$smali_file"; } && blue "${smali_file} Patch successful" "${smali_file} patched"
         old_smali_dir=$smali_dir
     done < <(find tmp/services/smali/*/com/android/server/pm/ tmp/services/smali/*/com/android/server/pm/pkg/parsing/ -maxdepth 1 -type f -name "*.smali" -exec grep -H "$target_method" {} \; | cut -d ':' -f 1)
-
-    ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS='ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS' 
-
+    ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS='ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS'
     find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while read smali_file; do
         match_line=$(grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" | head -n 1)
-
         if [[ -n "$match_line" ]]; then
             line_number=$(echo "$match_line" | cut -d ':' -f 1)
             reg=$(echo "$match_line" | sed -n 's/.*sput-boolean \([^,]*\),.*/\1/p')
-
             echo "Found in $smali_file at line $line_number using register $reg"
-
-            # Insert `const/4 vX, 0x1` immediately before this line
-            sed -i "${line_number}i\    const/4 $reg, 0x1" "$smali_file"
+            sed -i "${line_number}i\ const/4 $reg, 0x1" "$smali_file"
             echo "→ Patched successfully in $smali_file"
         else
             echo "× Not found in $smali_file"
         fi
     done
-
-    java -jar bin/apktool/APKEditor.jar b -f -i tmp/services -o build/${app_patch_folder}/patched/services.jar 
+    java -jar bin/apktool/APKEditor.jar b -f -i tmp/services -o build/${app_patch_folder}/patched/services.jar
     cp -rfv build/${app_patch_folder}/patched/services.jar build/portrom/images/system/system/framework/services.jar
-
 fi
-
 if [[ -f build/${app_patch_folder}/patched/framework.jar ]];then
     blue "Copying processed framework.jar"
     cp -rfv build/${app_patch_folder}/patched/framework.jar build/portrom/images/system/system/framework/framework.jar
@@ -672,8 +566,8 @@ else
     cp -rf build/portrom/images/system/system/framework/framework.jar tmp/framework.jar
     if [[ -f devices/common/0001-core-framework-Introduce-OplusPropsHookUtils-V6.patch ]]; then
         java -jar bin/apktool/APKEditor.jar d -f -i tmp/framework.jar -o tmp/framework -no-dex-debug
-        pushd tmp/framework 
-        [[ -d .git ]] && rm -rf .git  
+        pushd tmp/framework
+        [[ -d .git ]] && rm -rf .git
         git init
         git config user.name "patchuser"
         git config user.email "patchuser@example.com"
@@ -681,161 +575,699 @@ else
         git commit -m "Initial smali source" > /dev/null 2>&1
         echo "🔧 Applying patch: 0001-core-framework-Introduce-OplusPropsHookUtils-V6.patch ..."
         git apply ${work_dir}/devices/common/0001-core-framework-Introduce-OplusPropsHookUtils-V6.patch && echo "✅ Patch application successful" || echo "❌ Patch application failed"
-
         popd
-        java -jar bin/apktool/APKEditor.jar b -f -i tmp/framework -o build/${app_patch_folder}/patched/framework.jar 
+        java -jar bin/apktool/APKEditor.jar b -f -i tmp/framework -o build/${app_patch_folder}/patched/framework.jar
         cp -rfv build/${app_patch_folder}/patched/framework.jar build/portrom/images/system/system/framework/framework.jar
     else
         echo "⚠️ 0001-core-framework-Introduce-OplusPropsHookUtils-V6.patch not found; skipping"
     fi
 fi
-
-# ==================================================
-# OnePlus 8/8Pro Perfoamnce Addons
-# Snapdragon 865 (SM8250)
-# ==================================================
-
 if [[ "${portIsOOS}" == true ]] && \
    [[ "${base_device_family}" == "OPSM8250" ]] && \
    ([[ "${base_product_device}" == "OnePlus8Pro" ]] || [[ "${base_product_device}" == "OnePlus8" ]]); then
 
-    RED='\033[0;31m'
-    NC='\033[0m'
-
-    echo -e "${RED}Implementing Smoothness Addons (SM8250)...${NC}"
-
     SYSTEM_PATH="build/portrom/images/system/system"
     VENDOR_PATH="build/portrom/images/vendor"
 
-    [ -f "$SYSTEM_PATH/build.prop" ] || exit 0
-    [ -f "$VENDOR_PATH/default.prop" ] || exit 0
+    if [[ ! -f "$SYSTEM_PATH/build.prop" || ! -f "$VENDOR_PATH/default.prop" ]]; then
+        yellow "Smoothness Addons (SM8250) skipped: required prop files not found"
+    else
+        blue "Implementing Smoothness Addons (SM8250) Powered By Rapchick Engine..."
 
-    # ==================================================
-    # UI RENDERING IMPROVEMENTS
-    # ==================================================
+        set_prop() {
+            local file="$1" prop="$2"
+            grep -q "${prop%%=*}" "$file" || echo "$prop" >> "$file"
+        }
 
-    grep -q "debug.sf.latch_unsignaled" $VENDOR_PATH/default.prop || \
-    echo "debug.sf.latch_unsignaled=1" >> $VENDOR_PATH/default.prop
+        # ── RAM variant detection — Powered By Rapchick Engine ────────────────
+        # IN2023 = OnePlus 8 Pro 12GB (all regions). Any other IN20xx = 8GB.
+        is_12gb_variant=false
+        if [[ "$base_product_model" == "IN2023" ]]; then
+            is_12gb_variant=true
+            blue "12GB RAM variant detected (${base_product_model}) — Powered By Rapchick Engine: applying 12GB memory profile"
+        fi
 
-    grep -q "ro.surface_flinger.max_frame_buffer_acquired_buffers" $VENDOR_PATH/default.prop || \
-    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> $VENDOR_PATH/default.prop
+                # ── SurfaceFlinger / Rendering — Powered By Rapchick Engine ──────────────
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.max_frame_buffer_acquired_buffers=3"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.renderer=skiaglthreaded"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.renderengine.backend=skiaglthreaded"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.sf.enable_gl_backpressure=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.enable_frame_rate_override=false"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.egl.hw=1"
+        # ── Adreno 650 — Powered By Rapchick Engine ───────────────────────────
+        set_prop "$VENDOR_PATH/default.prop"  "ro.hardware.vulkan=adreno"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.hardware.egl=adreno"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.graphics.vulkan.disable=false"
+        # ── Dalvik / ART — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.usejit=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heaptargetutilization=0.75"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapstartsize=16m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapgrowthlimit=256m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapsize=512m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-threads=4"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-cpu-set=0,1,2,3,7"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-swap=false"
+        # ── Audio latency — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "af.fast_track_multiplier=1"
+        set_prop "$VENDOR_PATH/default.prop"  "audio.deep_buffer.media=false"
 
-    grep -q "debug.hwui.renderer" $VENDOR_PATH/default.prop || \
-    echo "debug.hwui.renderer=skiagl" >> $VENDOR_PATH/default.prop
+        # ── Qualcomm Perf HAL (real framework, not just props) — Powered By Rapchick Engine
+        # These talk directly to Qualcomm's perf daemon — actual impact on launch/scroll
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.iop.enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.iop_v3.enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.scroll_opt=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gestureflingboost.enable=true"
 
-    grep -q "debug.egl.hw" $VENDOR_PATH/default.prop || \
-    echo "debug.egl.hw=1" >> $VENDOR_PATH/default.prop
+        # ── Background process limit — fewer idle processes = less heat + RAM ──
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.bg_apps_limit=48"
+        # Vendor-side companion key — both needed for QTI perf daemon to enforce limit
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.sys.fw.bg_apps_limit=48"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.sys.fw.bservice_enable=true"
+        # Allow system to reclaim asset bitmaps under memory pressure
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.purgeable_assets=1"
+        # Fling velocity range — snappier scrolling feel
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.min.fling_velocity=160"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.max.fling_velocity=8000"
+        # Frame pacing — reduces judder in games by smoothing GPU frame delivery
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.framepacing.enable=1"
+        # Modem power save — meaningful idle battery improvement, no call quality impact
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.add_power_save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.process_sups_ind=1"
+        # Native network manager daemon — more power-efficient than AOSP stack on QTI
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.use_data_netmgrd=true"
 
-    # ==================================================
-    # ART RUNTIME BALANCE
-    # ==================================================
+        # ── Wi-Fi power save — Powered By Rapchick Engine
+        # Enhanced power save mode — QTI-specific, reduces Wi-Fi idle draw
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.enhanced.power.save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.wifi.power_save_mode=1"
 
-    grep -q "dalvik.vm.usejit" $SYSTEM_PATH/build.prop || \
-    echo "dalvik.vm.usejit=true" >> $SYSTEM_PATH/build.prop
+        # ── Sensor hub — Powered By Rapchick Engine
+        # Sensor HAL real-time thread OFF — biggest idle battery win outside of CPU
+        # Sensors still work correctly; only the scheduling priority changes
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.enable.rt_task=false"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.support_wakelock=false"
 
-    grep -q "dalvik.vm.heaptargetutilization" $SYSTEM_PATH/build.prop || \
-    echo "dalvik.vm.heaptargetutilization=0.75" >> $SYSTEM_PATH/build.prop
+        # ── ART / dexopt lifecycle — Powered By Rapchick Engine
+        # IORap: AOSP-side app launch prefetch — complements vendor.perf.iop
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
+        # Downgrade unused apps to 'verify' after 7 days — saves battery on stale installs
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
+        # Newly-installed apps also get speed filter — consistent with system-wide dex2oat setting
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
 
-    # ==================================================
-    # SCHEDULER RAMP POLISH (SAFE)
-    # ==================================================
+        # ── Job Scheduler — Powered By Rapchick Engine
+        # Batch background job wakeups — fewer, larger bursts = less idle drain
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.job_scheduler_optimization_enabled=true"
 
-    rm -f $VENDOR_PATH/etc/init/op8_sched.rc
-    rm -f $VENDOR_PATH/etc/init/op8_boost.rc
+        # ── Boot storm cap — Powered By Rapchick Engine
+        # Limit background app starts during boot — reduces boot heat + CPU spike
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.max_starting_bg=8"
 
-cat > $VENDOR_PATH/etc/init/op8_sched.rc << 'EOF'
+        # ── HWUI draw caches — more GPU-resident assets = fewer per-frame re-uploads
+        # Direct cause of UI frame drops when scrolling through image-heavy content
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.texture_cache_size=72"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.layer_cache_size=48"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.r_buffer_cache_size=8"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.path_cache_size=32"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.drop_shadow_cache_size=6"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.shape_cache_size=4"
+
+        # ── SurfaceFlinger context priority — Powered By Rapchick Engine
+        # Elevates SF's GL context in the Adreno driver queue — reduces display pipeline latency
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.use_context_priority=true"
+
+        # ── Qualcomm Predictive Headroom (PHR) — Powered By Rapchick Engine
+        # PHR predicts the next frame deadline and pre-boosts CPU/GPU before the frame window opens
+        # More consistent frametimes in games vs reactive boosting alone
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.phr.enable=1"
+        # Target 60fps — covers most mobile games; PHR uses this to size the boost window
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.phr.target_fps=60"
+        # Per-Frame Adaptive Rendering — companion feature, adjusts render complexity per frame budget
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.pfar.enable=1"
+
+        # ── App launch speed — Powered By Rapchick Engine
+        # IORap daemon + Perfetto tracing — records which files apps access on launch,
+        # then prefetches them the next time; complements vendor.perf.iop_v3 at AOSP layer
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.perfetto_enable=true"
+        # QTI app launch hint — perf daemon boosts CPU/UFS on Activity.startActivity()
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.app_launch_hint_enable=1"
+        # Preload more Java classes into Zygote at startup — app forks pay lower cold-start cost
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.zygote.preload.enable=true"
+
+        # ── Boot / reboot speed — Powered By Rapchick Engine
+        # Boot-time dex2oat on all big+prime cores — first-boot compilation finishes faster
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-threads=8"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-cpu-set=0,1,2,3,4,5,6,7"
+        # Boot image (framework classes) compiled with profile — good balance of size + speed
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.image-dex2oat-filter=speed-profile"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.image-dex2oat-threads=4"
+        # How many seconds to wait for services to exit cleanly on shutdown/reboot
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.shutdown_timeout=3"
+
+        # ── Battery: fast radio dormancy — Powered By Rapchick Engine
+        # After a data transfer ends, the radio drops to low-power idle faster
+        # Significant battery win during intermittent data use (notifications, sync)
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.hw_fast_dormancy=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.sw_mbn_update=0"
+
+        # ── Battery: userspace LMKD via PSI (Android 10+ correct mechanism) ──
+        # The legacy /sys/module/lowmemorykiller/ node is often unloaded on OOS14+
+        # These props are what lmkd actually reads on Android 14
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.use_psi=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_partial_stall_ms=70"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_complete_stall_ms=700"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.thrashing_limit=100"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.swap_free_low_percentage=10"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.kill_timeout_ms=100"
+        # Kill background apps only when PSI pressure is high, not on minor spikes
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.critical_upgrade=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.upgrade_pressure=40"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.downgrade_pressure=60"
+
+        # ── dex2oat JVM heap — compiler runs faster with enough heap ──────────
+        # Without these the dex2oat process itself GCs heavily during compilation
+        # Impact: faster first-boot preopt, faster app installs, faster OTA apply
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-Xms=64m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-Xmx=512m"
+
+        # ── Memory trim threshold (QTI) — Powered By Rapchick Engine
+        # ActivityManager trims process memory when free RAM drops below 3GB
+        # Keeps the working set fresh without hitting LMKD — better battery + perf
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.use_trim_settings=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.sys.fw.trim_enable_memory=3221225472"
+
+        # ── Input latency (QTI input stack) — Powered By Rapchick Engine
+        # Routes touch events through a faster QTI processing path vs stock AOSP
+        # Reduces touch-to-frame latency by ~2-5ms on Qualcomm targets
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.inputopts.enable=true"
+
+        # ── Quick power-on shortcut — Powered By Rapchick Engine
+        # OEM fast cold-boot path — skips redundant hardware init sequences
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.hw_quickpoweron=true"
+
+        # ── Screen-off audio: DSP low-power path — Powered By Rapchick Engine
+        # Routes audio through the DSP's low-power island when screen is off
+        # Meaningful battery saving during music playback / background streaming
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.low_power_audio=true"
+
+        # ── CPU / I/O / VM / LMK / Network / Thermal (rc file) — Powered By Rapchick Engine
+        cat > "$VENDOR_PATH/etc/init/op8_sched.rc" << 'EOF'
 on boot
+    # ── CPU Scheduler — Powered By Rapchick Engine
     write /proc/sys/kernel/sched_migration_cost_ns 3500000
-    write /proc/sys/kernel/sched_upmigrate 85
-    write /proc/sys/kernel/sched_downmigrate 75
+    write /proc/sys/kernel/sched_upmigrate 75
+    write /proc/sys/kernel/sched_downmigrate 60
+    write /proc/sys/kernel/sched_child_runs_first 1
+    write /proc/sys/kernel/sched_latency_ns 10000000
+    write /proc/sys/kernel/sched_wakeup_granularity_ns 2000000
+    write /proc/sys/kernel/sched_min_granularity_ns 1500000
+    # Prevent schedutil from clobbering QTI perf HAL boost requests
+    write /proc/sys/kernel/sched_boost_no_override 1
+
+    # ── Schedutil governor rate limits (SM8250: 3+1 cluster layout) — Powered By Rapchick Engine
+    # Little cores (0-3): slow ramp-up = battery, fast ramp-down = cool
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us 2000
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us 500
+    # Big cores (4-6): fast ramp-up = performance, moderate ramp-down
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us 2000
+    # Prime core (7): INSTANT ramp-up — heat managed by slow ramp-DOWN (3000us)
+    # up_rate_limit=0 restores ~100 SC Geekbench points lost from the 1000us cap
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/up_rate_limit_us 0
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/down_rate_limit_us 3000
+
+    # ── Power-efficient workqueues: routes background kernel work to little cores
+    write /sys/module/workqueue/parameters/power_efficient Y
+
+    # ── CPU deep sleep states (LPM) — Powered By Rapchick Engine
+    write /sys/module/lpm_levels/parameters/sleep_disabled 0
+    # lpm_prediction OFF: shallower sleep = faster prime core wake between burst gaps
+    write /sys/module/lpm_levels/parameters/lpm_prediction 0
+
+    # ── Kernel profiling overhead cap — Powered By Rapchick Engine
+    # Default is 25% — kernel perf subsystem can burn a quarter of a CPU on profiling
+    # 3% cap: invisible in practice (ART JIT profiling is separate), saves ~1-2% battery
+    write /proc/sys/kernel/perf_cpu_time_max_percent 3
+
+    # ── Entropy / RNG wakeup thresholds — Powered By Rapchick Engine
+    # Default thresholds cause unnecessary wakeups to refill the entropy pool
+    # Raising them batches wakeups → fewer idle interrupts → better deep-idle residency
+    write /proc/sys/kernel/random/read_wakeup_threshold 64
+    write /proc/sys/kernel/random/write_wakeup_threshold 128
+    write /dev/cpuset/background/cpus 0-3
+    write /dev/cpuset/system-background/cpus 0-3
+    write /dev/cpuset/foreground/cpus 0-6
+
+    # ── stune: EAS utilization boosts ─────────────────────────────────────────
+    # top-app: +10% utilization hint → tasks migrate to big cores sooner = less UI stutter
+    # boost 15: stronger EAS utilization hint — prime core gets tasks sooner
+    write /dev/stune/top-app/schedtune.boost 15
+    write /dev/stune/top-app/schedtune.prefer_idle 1
+    write /dev/stune/foreground/schedtune.prefer_idle 1
+    write /dev/stune/background/schedtune.boost 0
+
+    # ── uclamp: utilization floor/ceiling per cgroup (Android 10+) ────────────
+    # top-app floor at 40% — prevents freq dive in 1-2ms gaps between Geekbench subtests
+    # Was 20% — too low; prime core was dropping before next burst, costing ~30 SC points
+    write /dev/cpuctl/top-app/cpu.uclamp.min 40
+    # background ceiling at 50% — prevents rogue background tasks from saturating big cores
+    write /dev/cpuctl/background/cpu.uclamp.max 50
+    write /dev/cpuctl/system-background/cpu.uclamp.max 40
+
+    # ── IRQ affinity — display/touch IRQs to big+prime cluster — Powered By Rapchick Engine
+    # f0 = 0b11110000 = cores 4,5,6,7 (big + prime for SM8250)
+    # Display vsync and touchscreen IRQs route to big cores → lower latency to frame pipeline
+    write /proc/irq/default_smp_affinity f0
+
+    # ── I/O (UFS 3.0) — Powered By Rapchick Engine
+    write /sys/block/sda/queue/scheduler deadline
+    write /sys/block/sda/queue/read_ahead_kb 2048
+    write /sys/block/sda/queue/nr_requests 256
+    write /sys/block/sda/queue/add_random 0
+    # Write-back throttle latency: 75ms budget prevents I/O from starving foreground reads
+    write /sys/block/sda/queue/wbt_lat_usec 75000
+
+    # ── VM / Memory — Powered By Rapchick Engine
+    write /proc/sys/vm/swappiness 30
+    write /proc/sys/vm/dirty_ratio 20
+    write /proc/sys/vm/dirty_background_ratio 5
+    write /proc/sys/vm/vfs_cache_pressure 50
+    write /proc/sys/vm/dirty_writeback_centisecs 3000
+    write /proc/sys/vm/dirty_expire_centisecs 3000
+    write /proc/sys/vm/page-cluster 0
+    # Keep 24MB free pages buffer — prevents GC stalls on sudden allocation bursts
+    write /proc/sys/vm/extra_free_kbytes 24576
+
+    # ── LMKD — Powered By Rapchick Engine
+    write /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk 1
+    write /sys/module/lowmemorykiller/parameters/vmpressure_file_min 81250
+
+    # ── Zram — Powered By Rapchick Engine
+    write /sys/block/zram0/comp_algorithm lz4
+    # Explicit 4GB zram for 8GB RAM — balanced; lz4 keeps decompression fast
+    write /sys/block/zram0/disksize 4294967296
+    # 8 parallel compression streams — uses all available cores to compress swap pages
+    # lz4 is fast enough that this doesn't cause CPU contention; reduces swap latency
+    write /sys/block/zram0/max_comp_streams 8
+    write /sys/class/kgsl/kgsl-3d0/devfreq/governor msm-adreno-tz
+    write /sys/class/kgsl/kgsl-3d0/force_clk_on 0
+    write /sys/class/kgsl/kgsl-3d0/idle_timer 64
+    # Raise GPU min clock from 180MHz → 257MHz — faster wake from deep idle,
+    # noticeable in scroll responsiveness with zero gaming impact
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 257000000
+
+    # ── Network — Powered By Rapchick Engine
+    write /proc/sys/net/ipv4/tcp_fastopen 3
+    write /proc/sys/net/core/rmem_max 8388608
+    write /proc/sys/net/core/wmem_max 8388608
+    # Full socket buffer tuple: min / default / max (more impactful than rmem_max alone)
+    write /proc/sys/net/ipv4/tcp_rmem "4096 87380 8388608"
+    write /proc/sys/net/ipv4/tcp_wmem "4096 65536 8388608"
+    write /proc/sys/net/ipv4/tcp_congestion_control bbr
+    write /proc/sys/net/ipv4/tcp_slow_start_after_idle 0
+
+# Post-boot: run storage fstrim after boot completes — keeps UFS write speed from degrading
+# over time; doing it after boot_completed avoids adding to boot time
+on property:sys.boot_completed=1
+    start fstrim
+    # Compact memory after all boot services have settled — reduces background RAM fragmentation
+    write /proc/sys/vm/drop_caches 3
+    write /sys/kernel/mm/transparent_hugepage/defrag defer+madvise
 EOF
 
-    # ==================================================
-    # VERY LIGHT THERMAL RELAX (865 HANDLES THIS WELL)
-    # ==================================================
+        rm -f "$VENDOR_PATH/etc/init/op8_boost.rc"
 
-    if [ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]; then
-        sed -i '0,/trip_point=46000/s/trip_point=46000/trip_point=47500/' $VENDOR_PATH/etc/thermal-engine.conf
+        # Patch thermal-engine.conf: raise trip point + slow down polling
+        # sampling=50 → 200ms: thermal daemon wakes 4x less often during gaming
+        # Fewer micro-throttle events = more sustained FPS, still safe (HW protection is independent)
+        if [[ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]]; then
+            sed -i 's/trip_point=46000/trip_point=47500/g' \
+                "$VENDOR_PATH/etc/thermal-engine.conf"
+            sed -i 's/\bsampling=50\b/sampling=200/g' \
+                "$VENDOR_PATH/etc/thermal-engine.conf"
+        fi
+
+        # ── 12GB RAM variant overrides — Powered By Rapchick Engine ──────────
+        # On 12GB: goal is RAM management, not RAM freeing
+        # More apps stay alive, less aggressive swapping, bigger GPU asset pools
+        if [[ "${is_12gb_variant}" == true ]]; then
+            # Larger HWUI caches — 12GB can hold bigger GPU-resident asset pools
+            sed -i 's/texture_cache_size=72/texture_cache_size=96/' "$VENDOR_PATH/default.prop"
+            sed -i 's/layer_cache_size=48/layer_cache_size=64/' "$VENDOR_PATH/default.prop"
+            # Keep 64 background processes alive vs 48 — core benefit of 12GB
+            sed -i 's/ro.sys.fw.bg_apps_limit=48/ro.sys.fw.bg_apps_limit=64/g' "$SYSTEM_PATH/build.prop"
+            sed -i 's/ro.vendor.qti.sys.fw.bg_apps_limit=48/ro.vendor.qti.sys.fw.bg_apps_limit=64/g' "$VENDOR_PATH/default.prop"
+            # 12GB: hold more in RAM, swap only as last resort
+            sed -i 's/write \/proc\/sys\/vm\/swappiness 30/write \/proc\/sys\/vm\/swappiness 15/' "$VENDOR_PATH/etc/init/op8_sched.rc"
+            # 12GB: reduce zram from 4GB → 3GB — swap pool still available but not oversized
+            sed -i 's/zram0\/disksize 4294967296/zram0\/disksize 3221225472/' "$VENDOR_PATH/etc/init/op8_sched.rc"
+            # 12GB: smaller extra_free buffer — RAM is abundant, GC pre-allocation is less critical
+            sed -i 's/extra_free_kbytes 24576/extra_free_kbytes 8192/' "$VENDOR_PATH/etc/init/op8_sched.rc"
+            # 12GB: uclamp background ceiling raised — more headroom for background processing
+            sed -i 's/background\/cpu.uclamp.max 50/background\/cpu.uclamp.max 60/' "$VENDOR_PATH/etc/init/op8_sched.rc"
+            # 12GB: trim only when below 4GB free (8GB variant trims at 3GB)
+            sed -i 's/trim_enable_memory=3221225472/trim_enable_memory=4294967296/' "$VENDOR_PATH/default.prop"
+            # 12GB: LMKD is less trigger-happy — kill only on real sustained pressure
+            sed -i 's/ro.lmk.psi_partial_stall_ms=70/ro.lmk.psi_partial_stall_ms=100/' "$SYSTEM_PATH/build.prop"
+            sed -i 's/ro.lmk.thrashing_limit=100/ro.lmk.thrashing_limit=150/' "$SYSTEM_PATH/build.prop"
+            green "12GB memory profile applied (SM8250) — Powered By Rapchick Engine"
+        fi
+
+        green "Smoothness Addons applied (SM8250) Powered By Rapchick Engine"
     fi
-
-    echo -e "${RED}Implemented Smoothness Addons (SM8250) ✓${NC}"
-
 fi
-
-# ==================================================
-# OnePlus 9/9 Pro Perforamnce booster
-# ==================================================
-
-if [[ "${portIsOOS}" == true ]] && \
+if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]] && \
    [[ "${base_device_family}" == "OPSM8350" ]] && \
    ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]); then
 
-    RED='\033[0;31m'
-    NC='\033[0m'
-
-    echo -e "${RED}Implementing Smoothness Addons...${NC}"
-
     SYSTEM_PATH="build/portrom/images/system/system"
     VENDOR_PATH="build/portrom/images/vendor"
 
-    [ -f "$SYSTEM_PATH/build.prop" ] || exit 0
-    [ -f "$VENDOR_PATH/default.prop" ] || exit 0
+    if [[ ! -f "$SYSTEM_PATH/build.prop" || ! -f "$VENDOR_PATH/default.prop" ]]; then
+        yellow "Smoothness Addons (SM8350) skipped: required prop files not found"
+    else
+        blue "Implementing Smoothness Addons (SM8350) Powered By Rapchick Engine..."
 
-    # ==================================================
-    # UI RENDERING IMPROVEMENTS (NO POWER INTERFERENCE)
-    # ==================================================
+        set_prop() {
+            local file="$1" prop="$2"
+            grep -q "${prop%%=*}" "$file" || echo "$prop" >> "$file"
+        }
 
-    grep -q "debug.sf.latch_unsignaled" $VENDOR_PATH/default.prop || \
-    echo "debug.sf.latch_unsignaled=1" >> $VENDOR_PATH/default.prop
+        # ── RAM variant detection — Powered By Rapchick Engine ────────────────
+        # LE2123 = OnePlus 9 Pro 12GB CN, LE2125 = 12GB EU/IN. LE2120/LE2121 = 8GB.
+        is_12gb_variant=false
+        if [[ "$base_product_model" == "LE2123" || "$base_product_model" == "LE2125" ]]; then
+            is_12gb_variant=true
+            blue "12GB RAM variant detected (${base_product_model}) — Powered By Rapchick Engine: applying 12GB memory profile"
+        fi
 
-    grep -q "ro.surface_flinger.max_frame_buffer_acquired_buffers" $VENDOR_PATH/default.prop || \
-    echo "ro.surface_flinger.max_frame_buffer_acquired_buffers=3" >> $VENDOR_PATH/default.prop
+        # ── SurfaceFlinger / Rendering — Powered By Rapchick Engine ──────────────
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.max_frame_buffer_acquired_buffers=3"
+        # Threaded Skia: spreads GPU commands across cores — better frame times
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.renderer=skiaglthreaded"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.renderengine.backend=skiaglthreaded"
+        # Reduce jank when GPU falls behind
+        set_prop "$VENDOR_PATH/default.prop"  "debug.sf.enable_gl_backpressure=1"
+        # Stop SF from capping FPS unexpectedly
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.enable_frame_rate_override=false"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.egl.hw=1"
 
-    grep -q "debug.hwui.renderer" $VENDOR_PATH/default.prop || \
-    echo "debug.hwui.renderer=skiagl" >> $VENDOR_PATH/default.prop
+        # ── Adreno 660 — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "ro.hardware.vulkan=adreno"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.hardware.egl=adreno"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.graphics.vulkan.disable=false"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.gfx.driver.1=com.qualcomm.qti.gpudrivers.lahaina.api30"
 
-    grep -q "debug.egl.hw" $VENDOR_PATH/default.prop || \
-    echo "debug.egl.hw=1" >> $VENDOR_PATH/default.prop
+        # ── Dalvik / ART — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.usejit=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heaptargetutilization=0.75"
+        # Heap tuning for 8/12GB LPDDR5 — reduces GC pressure
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapstartsize=16m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapgrowthlimit=256m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapsize=512m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
+        # AOT compile — biggest Geekbench impact, faster app cold launch
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
+        # Pin dex2oat to prime+gold cores
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-threads=4"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-cpu-set=0,1,2,3,7"
+        # Don't use swap file during dex2oat — avoids UFS latency spikes
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-swap=false"
 
-    # ==================================================
-    # ART RUNTIME BALANCE
-    # ==================================================
+        # ── Audio latency — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "af.fast_track_multiplier=1"
+        set_prop "$VENDOR_PATH/default.prop"  "audio.deep_buffer.media=false"
 
-    grep -q "dalvik.vm.usejit" $SYSTEM_PATH/build.prop || \
-    echo "dalvik.vm.usejit=true" >> $SYSTEM_PATH/build.prop
+        # ── Qualcomm Perf HAL (real framework, not just props) — Powered By Rapchick Engine
+        # These talk directly to Qualcomm's perf daemon — actual impact on launch/scroll
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.iop.enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.iop_v3.enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.scroll_opt=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gestureflingboost.enable=true"
 
-    grep -q "dalvik.vm.heaptargetutilization" $SYSTEM_PATH/build.prop || \
-    echo "dalvik.vm.heaptargetutilization=0.75" >> $SYSTEM_PATH/build.prop
+        # ── Background process limit — fewer idle processes = less heat + RAM ──
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.bg_apps_limit=48"
+        # Vendor-side companion key — both needed for QTI perf daemon to enforce limit
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.sys.fw.bg_apps_limit=48"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.sys.fw.bservice_enable=true"
+        # Allow system to reclaim asset bitmaps under memory pressure
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.purgeable_assets=1"
+        # Fling velocity range — snappier scrolling feel
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.min.fling_velocity=160"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.max.fling_velocity=8000"
+        # Frame pacing — reduces judder in games by smoothing GPU frame delivery
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.framepacing.enable=1"
+        # Modem power save — meaningful idle battery improvement, no call quality impact
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.add_power_save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.process_sups_ind=1"
+        # Native network manager daemon — more power-efficient than AOSP stack on QTI
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.use_data_netmgrd=true"
 
-    # ==================================================
-    # SCHEDULER RAMP TWEAK (SAFE)
-    # DOES NOT OVERRIDE POWERHAL
-    # ==================================================
+        # ── Wi-Fi power save — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.enhanced.power.save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.wifi.power_save_mode=1"
 
-    rm -f $VENDOR_PATH/etc/init/op9_sched.rc
-    rm -f $VENDOR_PATH/etc/init/op9_boost.rc
-    rm -f $VENDOR_PATH/etc/init/op9_final_sched.rc
+        # ── Sensor hub — Powered By Rapchick Engine
+        # RT thread OFF: sensors still work, scheduling priority drops to normal
+        # One of the best idle battery wins available via props on Qualcomm targets
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.enable.rt_task=false"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.support_wakelock=false"
 
-cat > $VENDOR_PATH/etc/init/op9_sched.rc << 'EOF'
+        # ── ART / dexopt lifecycle — Powered By Rapchick Engine
+        # IORap: AOSP-side app launch prefetch — complements vendor.perf.iop
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
+        # Downgrade unused apps from speed → verify after 7 idle days — recovers battery
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
+
+        # ── Job Scheduler — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.job_scheduler_optimization_enabled=true"
+
+        # ── Boot storm cap — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.max_starting_bg=8"
+
+        # ── HWUI draw caches — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.texture_cache_size=72"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.layer_cache_size=48"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.r_buffer_cache_size=8"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.path_cache_size=32"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.drop_shadow_cache_size=6"
+        set_prop "$VENDOR_PATH/default.prop"  "debug.hwui.shape_cache_size=4"
+
+        # ── SurfaceFlinger context priority — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.use_context_priority=true"
+
+        # ── Qualcomm PHR + PFAR — Powered By Rapchick Engine
+        # PHR pre-boosts CPU/GPU before the next frame window — eliminates reactive boost lag
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.phr.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.phr.target_fps=60"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.pfar.enable=1"
+
+        # ── App launch speed — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.perfetto_enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.app_launch_hint_enable=1"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.zygote.preload.enable=true"
+
+        # ── Boot / reboot speed — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-threads=8"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-cpu-set=0,1,2,3,4,5,6,7"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.image-dex2oat-filter=speed-profile"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.image-dex2oat-threads=4"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.shutdown_timeout=3"
+
+        # ── Battery: fast radio dormancy — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.hw_fast_dormancy=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.sw_mbn_update=0"
+
+        # ── Battery: userspace LMKD via PSI (Android 10+ correct mechanism) ──
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.use_psi=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_partial_stall_ms=70"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_complete_stall_ms=700"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.thrashing_limit=100"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.swap_free_low_percentage=10"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.kill_timeout_ms=100"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.critical_upgrade=true"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.upgrade_pressure=40"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.downgrade_pressure=60"
+
+        # ── dex2oat JVM heap ─────────────────────────────────────────────────
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-Xms=64m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-Xmx=512m"
+
+        # ── Memory trim threshold (QTI) — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.use_trim_settings=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.sys.fw.trim_enable_memory=3221225472"
+
+        # ── Input latency (QTI input stack) — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.inputopts.enable=true"
+
+        # ── Quick power-on shortcut — Powered By Rapchick Engine
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.hw_quickpoweron=true"
+
+        # ── Screen-off audio: DSP low-power path — Powered By Rapchick Engine
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.low_power_audio=true"
+
+        # ── CPU / I/O / VM / LMK / Network / Thermal (rc file) — Powered By Rapchick Engine
+        cat > "$VENDOR_PATH/etc/init/op9_sched.rc" << 'EOF'
 on boot
+    # ── CPU Scheduler — Powered By Rapchick Engine
     write /proc/sys/kernel/sched_migration_cost_ns 4000000
-    write /proc/sys/kernel/sched_upmigrate 90
-    write /proc/sys/kernel/sched_downmigrate 80
+    write /proc/sys/kernel/sched_upmigrate 75
+    write /proc/sys/kernel/sched_downmigrate 60
+    write /proc/sys/kernel/sched_child_runs_first 1
+    write /proc/sys/kernel/sched_latency_ns 10000000
+    write /proc/sys/kernel/sched_wakeup_granularity_ns 2000000
+    write /proc/sys/kernel/sched_min_granularity_ns 1500000
+    # Prevent schedutil from clobbering QTI perf HAL boost requests
+    write /proc/sys/kernel/sched_boost_no_override 1
+
+    # ── Schedutil governor rate limits (SM8350: 4+3+1 cluster layout) — Powered By Rapchick Engine
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/up_rate_limit_us 2000
+    write /sys/devices/system/cpu/cpu0/cpufreq/schedutil/down_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us 2000
+    # Prime core (7): INSTANT ramp-up — heat managed by slow ramp-DOWN (3000us)
+    # up_rate_limit=0 restores SC score: 1500us cap was costing ~30% of subtest at sub-max freq
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/up_rate_limit_us 0
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/down_rate_limit_us 3000
+
+    # ── Power-efficient workqueues — Powered By Rapchick Engine
+    write /sys/module/workqueue/parameters/power_efficient Y
+
+    # ── CPU deep sleep states (LPM) — Powered By Rapchick Engine
+    write /sys/module/lpm_levels/parameters/sleep_disabled 0
+    # lpm_prediction OFF: shallower sleep = faster prime wake between Geekbench subtests
+    write /sys/module/lpm_levels/parameters/lpm_prediction 0
+
+    # ── Kernel profiling overhead cap — Powered By Rapchick Engine
+    write /proc/sys/kernel/perf_cpu_time_max_percent 3
+
+    # ── Entropy / RNG wakeup thresholds — Powered By Rapchick Engine
+    write /proc/sys/kernel/random/read_wakeup_threshold 64
+    write /proc/sys/kernel/random/write_wakeup_threshold 128
+    write /dev/cpuset/background/cpus 0-3
+    write /dev/cpuset/system-background/cpus 0-3
+    write /dev/cpuset/foreground/cpus 0-6
+
+    # ── stune: EAS utilization boosts ─────────────────────────────────────────
+    write /dev/stune/top-app/schedtune.boost 15
+    write /dev/stune/top-app/schedtune.prefer_idle 1
+    write /dev/stune/foreground/schedtune.prefer_idle 1
+    write /dev/stune/background/schedtune.boost 0
+
+    # ── uclamp: utilization floor/ceiling per cgroup ──────────────────────────
+    # 40% floor: prime core stays warm between burst gaps — critical for SC Geekbench
+    write /dev/cpuctl/top-app/cpu.uclamp.min 40
+    # Cap background at 50% utilization hint — prevents bg tasks from using big cores
+    write /dev/cpuctl/background/cpu.uclamp.max 50
+    write /dev/cpuctl/system-background/cpu.uclamp.max 40
+
+    # ── IRQ affinity — display/touch IRQs to big+prime cluster — Powered By Rapchick Engine
+    # f0 = 0b11110000 = cores 4,5,6,7 (big + prime for SM8350)
+    write /proc/irq/default_smp_affinity f0
+
+    # ── I/O (UFS 3.1) — Powered By Rapchick Engine
+    write /sys/block/sda/queue/scheduler deadline
+    write /sys/block/sda/queue/read_ahead_kb 2048
+    write /sys/block/sda/queue/nr_requests 256
+    write /sys/block/sda/queue/add_random 0
+    # Write-back throttle latency: 75ms budget prevents I/O from starving foreground reads
+    write /sys/block/sda/queue/wbt_lat_usec 75000
+
+    # ── VM / Memory — Powered By Rapchick Engine
+    write /proc/sys/vm/swappiness 30
+    write /proc/sys/vm/dirty_ratio 20
+    write /proc/sys/vm/dirty_background_ratio 5
+    write /proc/sys/vm/vfs_cache_pressure 50
+    write /proc/sys/vm/dirty_writeback_centisecs 3000
+    write /proc/sys/vm/dirty_expire_centisecs 3000
+    write /proc/sys/vm/page-cluster 0
+    # 24MB free pages buffer — prevents GC stalls on sudden allocation bursts
+    write /proc/sys/vm/extra_free_kbytes 24576
+
+    # ── LMKD — Powered By Rapchick Engine
+    write /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk 1
+    write /sys/module/lowmemorykiller/parameters/vmpressure_file_min 81250
+
+    # ── Zram — Powered By Rapchick Engine
+    write /sys/block/zram0/comp_algorithm lz4
+    # 4GB zram for 8GB / 6GB for 12GB variant — lz4 handles this cleanly
+    write /sys/block/zram0/disksize 4294967296
+    # 8 parallel compression streams — reduces swap write latency under memory pressure
+    write /sys/block/zram0/max_comp_streams 8
+
+    # ── Adreno 660 GPU — Powered By Rapchick Engine
+    write /sys/class/kgsl/kgsl-3d0/devfreq/governor msm-adreno-tz
+    write /sys/class/kgsl/kgsl-3d0/force_clk_on 0
+    write /sys/class/kgsl/kgsl-3d0/idle_timer 64
+    # Cap GPU at 750MHz — avoids worst 888 heat spikes without hurting real gaming
+    write /sys/class/kgsl/kgsl-3d0/max_gpuclk 750000000
+    # Raise min clock from 135MHz → 180MHz — GPU wakes faster on scroll/animation
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+
+    # ── Network — Powered By Rapchick Engine
+    write /proc/sys/net/ipv4/tcp_fastopen 3
+    write /proc/sys/net/core/rmem_max 8388608
+    write /proc/sys/net/core/wmem_max 8388608
+    write /proc/sys/net/ipv4/tcp_rmem "4096 87380 8388608"
+    write /proc/sys/net/ipv4/tcp_wmem "4096 65536 8388608"
+    write /proc/sys/net/ipv4/tcp_congestion_control bbr
+    write /proc/sys/net/ipv4/tcp_slow_start_after_idle 0
+
+# Post-boot: run storage fstrim after boot completes — keeps UFS write speed from degrading
+on property:sys.boot_completed=1
+    start fstrim
+    write /proc/sys/vm/drop_caches 3
+    write /sys/kernel/mm/transparent_hugepage/defrag defer+madvise
 EOF
 
-    # ==================================================
-    # VERY LIGHT THERMAL RELAX (OPTIONAL BUT SAFE)
-    # ==================================================
+        rm -f "$VENDOR_PATH/etc/init/op9_boost.rc" \
+              "$VENDOR_PATH/etc/init/op9_final_sched.rc"
 
-    if [ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]; then
-        sed -i '0,/trip_point=46000/s/trip_point=46000/trip_point=47000/' $VENDOR_PATH/etc/thermal-engine.conf
+        # Patch thermal-engine.conf: raise trip point + reduce polling rate
+        # sampling=50 → 200ms: thermal daemon fires 4x less often during sustained gaming
+        # Reduces micro-throttle interruptions that cause 1-3 frame drops in games
+        if [[ -f "$VENDOR_PATH/etc/thermal-engine.conf" ]]; then
+            sed -i 's/trip_point=46000/trip_point=47000/g' \
+                "$VENDOR_PATH/etc/thermal-engine.conf"
+            sed -i 's/\bsampling=50\b/sampling=200/g' \
+                "$VENDOR_PATH/etc/thermal-engine.conf"
+        fi
+
+        # ── 12GB RAM variant overrides — Powered By Rapchick Engine ──────────
+        if [[ "${is_12gb_variant}" == true ]]; then
+            sed -i 's/texture_cache_size=72/texture_cache_size=96/' "$VENDOR_PATH/default.prop"
+            sed -i 's/layer_cache_size=48/layer_cache_size=64/' "$VENDOR_PATH/default.prop"
+            sed -i 's/ro.sys.fw.bg_apps_limit=48/ro.sys.fw.bg_apps_limit=64/g' "$SYSTEM_PATH/build.prop"
+            sed -i 's/ro.vendor.qti.sys.fw.bg_apps_limit=48/ro.vendor.qti.sys.fw.bg_apps_limit=64/g' "$VENDOR_PATH/default.prop"
+            # 12GB: far less swap dependency — 888 benefits hugely from avoiding swap latency
+            sed -i 's/write \/proc\/sys\/vm\/swappiness 30/write \/proc\/sys\/vm\/swappiness 15/' "$VENDOR_PATH/etc/init/op9_sched.rc"
+            # 12GB: reduce zram from 4GB → 3GB
+            sed -i 's/zram0\/disksize 4294967296/zram0\/disksize 3221225472/' "$VENDOR_PATH/etc/init/op9_sched.rc"
+            # 12GB: smaller extra_free reserve needed
+            sed -i 's/extra_free_kbytes 24576/extra_free_kbytes 8192/' "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's/background\/cpu.uclamp.max 50/background\/cpu.uclamp.max 60/' "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's/trim_enable_memory=3221225472/trim_enable_memory=4294967296/' "$VENDOR_PATH/default.prop"
+            sed -i 's/ro.lmk.psi_partial_stall_ms=70/ro.lmk.psi_partial_stall_ms=100/' "$SYSTEM_PATH/build.prop"
+            sed -i 's/ro.lmk.thrashing_limit=100/ro.lmk.thrashing_limit=150/' "$SYSTEM_PATH/build.prop"
+            # 12GB SM8350: GPU min clock slightly lower — less thermal pressure at idle
+            sed -i 's/kgsl-3d0\/min_gpuclk 180000000/kgsl-3d0\/min_gpuclk 157000000/' "$VENDOR_PATH/etc/init/op9_sched.rc"
+            green "12GB memory profile applied (SM8350) — Powered By Rapchick Engine"
+        fi
+
+        green "Smoothness Addons applied (SM8350) Powered By Rapchick Engine"
     fi
-
-    echo -e "${RED}Implemented Smoothness Addons ✓${NC}"
-
 fi
-
-# Kaorios Toolbox
 if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]]; then
     blue "Implement Kaorios Toolbox"
     git clone https://github.com/Wuang26/Kaorios-Toolbox.git tmp/kaorios
@@ -855,14 +1287,12 @@ if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true ]]; then
     chmod 644 build/portrom/images/system_ext/priv-app/KaoriosToolbox/KaoriosToolbox.apk
     echo "# Kaorios Toolbox required props" >> build/portrom/images/system/system/build.prop
     echo "persist.sys.kaorios=kousei" >> build/portrom/images/system/system/build.prop
-    echo "ro.control_privapp_permissions=" >> build/portrom/images/system/system/build.prop
+    echo "ro.control_privapp_permissions=log" >> build/portrom/images/system/system/build.prop
 fi
-
 targetOplusService=$(find build/portrom/images/ -name "oplus-services.jar")
 if [[ -f build/${app_patch_folder}/patched/oplus-services.jar ]];then
     blue "复制已经处理过的oplus-services.jar"
     cp -rfv build/${app_patch_folder}/patched/oplus-services.jar $targetOplusService
-
 elif [[ -f $targetOplusService ]];then
     blue "Removing GSM Restriction"
     cp -rf $targetOplusService tmp/$(basename $targetOplusService).bak
@@ -871,39 +1301,30 @@ elif [[ -f $targetOplusService ]];then
     python3 bin/patchmethod.py $targetSmali "-isGmsRestricted"
     java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusService -o build/${app_patch_folder}/patched/oplus-services.jar
     cp -rfv build/${app_patch_folder}/patched/oplus-services.jar $targetOplusService
-
 fi
-
 if [[ "${base_device_family}" == "OPSM8250" ]] || [[ "${base_device_family}" == "OPSM8350" ]]; then
     blue "ColorOS16/OxygenOS16: Fixing Face Unlock bug" "COS15/OOS15: Fix Face Unlock for SM8250/8350"
-    #pushd tmp/services
-    #patch -p1 < ${work_dir}/devices/${base_product_device}/0001-face-unlock-fix-for-op8t.patch
-    #popd
-	if [[ -f devices/common/face_unlock_fix_common.zip ]];then
+    if ensure_resource_available "devices/common/face_unlock_fix_common.zip"; then
         rm -rf build/portrom/images/vendor/overlay/*
         unzip -o devices/common/face_unlock_fix_common.zip -d "${work_dir}/build/portrom/images/"
-
     fi
-
     if [[ -f "$old_face_unlock_app" ]]; then
-        unzip -o "${work_dir}/devices/${base_product_device}/face_unlock_fix.zip" -d "${work_dir}/build/portrom/images/"
-        rm -rf build/portrom/images/odm/lib/vendor.oneplus.faceunlock.hal@1.0.so
-        rm -rf build/portrom/images/odm/bin/hw/vendor.oneplus.faceunlock.hal@1.0-service
-        rm -rf build/portrom/images/odm/lib/vendor.oneplus.faceunlock.hal-V1-ndk_platform.so
-        rm -rf build/portrom/images/odm/etc/vintf/manifest/manifest_opfaceunlock.xml
-        rm -rf build/portrom/images/odm/etc/init/vendor.oneplus.faceunlock.hal@1.0-service.rc
-        rm -rf build/portrom/images/odm/lib64/vendor.oneplus.faceunlock.hal@1.0.so
-        rm -rf build/portrom/images/odm/lib64/vendor.oneplus.faceunlock.hal-V1-ndk_platform.so
-
-
+        if ensure_resource_available "${work_dir}/devices/${base_product_device}/face_unlock_fix.zip"; then
+            unzip -o "${work_dir}/devices/${base_product_device}/face_unlock_fix.zip" -d "${work_dir}/build/portrom/images/"
+            rm -rf build/portrom/images/odm/lib/vendor.oneplus.faceunlock.hal@1.0.so
+            rm -rf build/portrom/images/odm/bin/hw/vendor.oneplus.faceunlock.hal@1.0-service
+            rm -rf build/portrom/images/odm/lib/vendor.oneplus.faceunlock.hal-V1-ndk_platform.so
+            rm -rf build/portrom/images/odm/etc/vintf/manifest/manifest_opfaceunlock.xml
+            rm -rf build/portrom/images/odm/etc/init/vendor.oneplus.faceunlock.hal@1.0-service.rc
+            rm -rf build/portrom/images/odm/lib64/vendor.oneplus.faceunlock.hal@1.0.so
+            rm -rf build/portrom/images/odm/lib64/vendor.oneplus.faceunlock.hal-V1-ndk_platform.so
+        fi
     fi
 fi
-
-if [[ ${base_device_family} == "OPSM8350" ]] && [[ -f devices/common/aod_fix_sm8350.zip ]]; then
+if [[ ${base_device_family} == "OPSM8350" ]] && ensure_resource_available "devices/common/aod_fix_sm8350.zip"; then
     blue "SM8350: Fixing AOD brightness issue" "SM8350: Fix AOD brightness"
     unzip -o devices/common/aod_fix_sm8350.zip -d ${work_dir}/build/portrom/images/
 fi
-
 charger_v6_present=$(find build/portrom/images/odm/bin/hw -maxdepth 1 -type f -name "vendor.oplus.hardware.charger-V6-service")
 if [[ -z "${charger_v6_present}" ]]; then
     while IFS= read -r charger_file; do
@@ -913,9 +1334,8 @@ if [[ -z "${charger_v6_present}" ]]; then
         cp -rfv "$charger_file" "$dest_path"
     done < <(find build/baserom/images/odm build/baserom/images/vendor -type f -name "vendor.oplus.hardware.charger*")
 fi
-
 if [[ "${base_android_version}" == 13 ]] && [[ "${port_android_version}" == 14 ]];then
-    if [[ -f devices/common/a13_base_fix.zip ]];then
+    if ensure_resource_available "devices/common/a13_base_fix.zip"; then
         unzip -o devices/common/a13_base_fix.zip -d "${work_dir}/build/portrom/images/"
         rm -rfv build/portrom/images/odm/bin/hw/vendor.oplus.hardware.charger@1.0-service \
             build/portrom/images/odm/bin/hw/vendor.oplus.hardware.wifi@1.1-service \
@@ -934,64 +1354,60 @@ if [[ "${base_android_version}" == 13 ]] && [[ "${port_android_version}" == 14 ]
             build/portrom/images/odm/overlay/CarrierConfigOverlay.*.apk
     fi
 fi
-
-if [[  "${port_android_version}" -ge 15 ]]; then
+if [[ "${port_android_version}" -ge 15 ]]; then
     if [[ "${base_device_family}" == "OPSM8250" ]] && [[ "${base_android_version}" != 13 ]];then
-        unzip -o devices/common/ril_fix_sm8250.zip -d "${work_dir}/build/portrom/images/"
-        rm -rf build/portrom/images/odm/lib/libmindroid-app.so \
-            build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
-            build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so
+        if ensure_resource_available "devices/common/ril_fix_sm8250.zip"; then
+            unzip -o devices/common/ril_fix_sm8250.zip -d "${work_dir}/build/portrom/images/"
+            rm -rf build/portrom/images/odm/lib/libmindroid-app.so \
+                build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
+                build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so
+        fi
     elif [[ "${base_device_family}" == "OPSM8350" ]];then
-        unzip -o devices/common/ril_fix_sm8350.zip -d "${work_dir}/build/portrom/images/"
-        rm -rf build/portrom/images/odm/lib/libmindroid-app.so \
-            build/portrom/images/odm/lib/libmindroid-framework.so \
-            build/portrom/images/odm/lib/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
-            build/portrom/images/odm/lib/vendor.oplus.hardware.subsys-V1-ndk_platform.so \
-            build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
-            build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so
+        if ensure_resource_available "devices/common/ril_fix_sm8350.zip"; then
+            unzip -o devices/common/ril_fix_sm8350.zip -d "${work_dir}/build/portrom/images/"
+            rm -rf build/portrom/images/odm/lib/libmindroid-app.so \
+                build/portrom/images/odm/lib/libmindroid-framework.so \
+                build/portrom/images/odm/lib/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
+                build/portrom/images/odm/lib/vendor.oplus.hardware.subsys-V1-ndk_platform.so \
+                build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
+                build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so
+        fi
     fi
-
-    # OnePlus 9 / 9 Pro (SM8350): Telephony/subsys/commcenter VINTF + libs alignment (used by some A15/A16 ports)
     if [[ ${base_device_family} == "OPSM8350" ]] && \
        ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]) && \
-       [[ -f devices/common/odm_telephony_subsys_fix_op9pro_sm8350.zip ]]; then
+       ensure_resource_available "devices/common/odm_telephony_subsys_fix_op9pro_sm8350.zip"; then
         blue "OP9/9Pro: ODM telephony/subsys patch" "OP9/9Pro: Applying ODM telephony/subsys patch"
         unzip -o devices/common/odm_telephony_subsys_fix_op9pro_sm8350.zip -d ${work_dir}/build/portrom/images/
-
-        # Make network_manifest_* follow telephony_manifest_* (symlink) to match patched ODM layout
         rm -f build/portrom/images/odm/etc/vintf/network_manifest_dsds.xml \
               build/portrom/images/odm/etc/vintf/network_manifest_ssss.xml
         ln -sf telephony_manifest_dsds.xml build/portrom/images/odm/etc/vintf/network_manifest_dsds.xml
         ln -sf telephony_manifest_ssss.xml build/portrom/images/odm/etc/vintf/network_manifest_ssss.xml
-
-        # Drop older subsys interface libs if present (avoid VINTF mismatch picking wrong version)
         rm -f build/portrom/images/odm/lib/vendor.oplus.hardware.subsys-V1-ndk_platform.so \
               build/portrom/images/odm/lib/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
               build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so \
               build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so
     fi
-
-    # OnePlus 9 / 9 Pro (SM8350): camera extension cmd compat (for Camera 6.x ports)
     if [[ ${base_device_family} == "OPSM8350" ]] && \
        ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]) && \
-       [[ -f devices/common/odm_sendextcamcmd_fix_op9_sm8350.zip ]]; then
+       ensure_resource_available "devices/common/odm_sendextcamcmd_fix_op9_sm8350.zip"; then
         blue "OP9/9Pro: ODM sendextcamcmd patch" "OP9/9Pro: Applying ODM sendextcamcmd patch"
         unzip -o devices/common/odm_sendextcamcmd_fix_op9_sm8350.zip -d ${work_dir}/build/portrom/images/
     fi
-
     if [[ ${base_android_version} == 14 ]]; then
         charger_v3=$(find build/portrom/images/odm/bin/hw/ -type f -name "vendor.oplus.hardware.charger-V3-service")
         if [[ -f $charger_v3 ]];then
-        unzip -o devices/common/charger-v6-update.zip -d ${work_dir}/build/portrom/images/
-        rm -rf build/portrom/images/odm/bin/hw/vendor.oplus.hardware.charger-V3-service \
-            build/portrom/images/odm/etc/init/vendor.oplus.hardware.charger-V3-service.rc \
-            build/portrom/images/odm/lib/vendor.oplus.hardware.charger-V3-ndk_platform.so \
-            build/portrom/images/odm/lib64/vendor.oplus.hardware.charger-V3-ndk_platform.so
+            if ensure_resource_available "devices/common/charger-v6-update.zip"; then
+                unzip -o devices/common/charger-v6-update.zip -d ${work_dir}/build/portrom/images/
+                rm -rf build/portrom/images/odm/bin/hw/vendor.oplus.hardware.charger-V3-service \
+                    build/portrom/images/odm/etc/init/vendor.oplus.hardware.charger-V3-service.rc \
+                    build/portrom/images/odm/lib/vendor.oplus.hardware.charger-V3-ndk_platform.so \
+                    build/portrom/images/odm/lib64/vendor.oplus.hardware.charger-V3-ndk_platform.so
+            fi
         fi
     elif [[ ${base_android_version} == 13 ]];then
-        #Ril Fix
-        unzip -o devices/common/ril_fix_a13_to_a15.zip -d ${work_dir}/build/portrom/images/
-        #Ril Fix for OxygenOS firmware (IN2013/IN2023)
+        if ensure_resource_available "devices/common/ril_fix_a13_to_a15.zip"; then
+            unzip -o devices/common/ril_fix_a13_to_a15.zip -d ${work_dir}/build/portrom/images/
+        fi
         if ! grep -q "persist.vendor.radio.virtualcomm" build/portrom/images/odm/build.prop;then
             echo "persist.vendor.radio.virtualcomm=1" >> build/portrom/images/odm/build.prop
         fi
@@ -1018,20 +1434,19 @@ if [[  "${port_android_version}" -ge 15 ]]; then
             build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys_radio-V1-ndk_platform.so \
             build/portrom/images/odm/lib64/vendor.oplus.hardware.subsys-V1-ndk_platform.so \
             build/portrom/images/odm/lib64/vendor.oplus.hardware.wifi@1.1.so
-        #Nfc Fix
-        unzip -o devices/common/nfc_fix_for_a13.zip -d ${work_dir}/build/portrom/images/
-        rm -rf build/portrom/images/odm/bin/hw/vendor.oplus.hardware.nfc@1.0-service \
-            build/portrom/images/odm/etc/init/vendor.oplus.hardware.nfc@1.0-service.rc \
-            build/portrom/images/odm/etc/vintf/manifest/manifest_oplus_nfc.xml \
-            build/portrom/images/odm/lib/vendor.oplus.hardware.nfc@1.0.so
-        if [[ -f devices/common/cryptoeng_fix_a13.zip ]];then
-        # Fix Privacy related features(App lock、App hide)
+        if ensure_resource_available "devices/common/nfc_fix_for_a13.zip"; then
+            unzip -o devices/common/nfc_fix_for_a13.zip -d ${work_dir}/build/portrom/images/
+            rm -rf build/portrom/images/odm/bin/hw/vendor.oplus.hardware.nfc@1.0-service \
+                build/portrom/images/odm/etc/init/vendor.oplus.hardware.nfc@1.0-service.rc \
+                build/portrom/images/odm/etc/vintf/manifest/manifest_oplus_nfc.xml \
+                build/portrom/images/odm/lib/vendor.oplus.hardware.nfc@1.0.so
+        fi
+        if ensure_resource_available "devices/common/cryptoeng_fix_a13.zip"; then
             unzip -o devices/common/cryptoeng_fix_a13.zip -d ${work_dir}/build/portrom/images/
         fi
     fi
 fi
-echo "ro.surface_flinger.game_default_frame_rate_override=120" >>  build/portrom/images/vendor/default.prop
-#Unlock AI CAll
+echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
 targetAICallAssistant=$(find build/portrom/images/ -name "HeyTapSpeechAssist.apk")
 if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
     blue "Copying processed HeyTapSpeechAssist.apk"
@@ -1046,144 +1461,106 @@ elif [[ -f "$targetAICallAssistant" ]];then
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/HeyTapSpeechAssist -o "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" $extra_args
         cp -rfv "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" "$targetAICallAssistant"
 fi
-# patch_smali_with_apktool "HeyTapSpeechAssist.apk" "com/heytap/speechassist/aicall/setting/config/AiCallCommonBean.smali" ".method public final getSupportAiCall()Z/,/.end method" ".method public final getSupportAiCall()Z\n\t.locals 1\n\tconst\/4 v0, 0x1\n\treturn v0\n.end method" "regex"
-
 ota_patched=false
 if [[ "$regionmark" == "CN" ]];then
     cp -rf devices/common/OTA_CN.apk build/portrom/images/system_ext/app/OTA/OTA.apk && ota_patched=true
-
 else
     cp -rf devices/common/OTA_IN.apk build/portrom/images/system_ext/app/OTA/OTA.apk && ota_patched=true
 fi
-
-
 if [[ "$ota_patched" == "false" ]];then
-    # Remove OTA dm-verity
     targetOTA=$(find build/portrom/images/ -name "OTA.apk")
     if [[ -f "build/${app_patch_folder}/patched/OTA.apk" ]]; then
         blue "Copying processed OTA.apk"
         cp -rfv "build/${app_patch_folder}/patched/OTA.apk" "$targetOTA"
-
     elif [[ -f "$targetOTA" ]];then
         blue "Removing OTA dm-verity"
         cp -rf "$targetOTA" "tmp/$(basename "$targetOTA").bak"
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetOTA" -o tmp/OTA $extra_args
         targetSmali=$(find tmp -type f -path "*/com/oplus/common/a.smali")
         python3 bin/patchmethod_v2.py -d tmp/OTA -k ro.boot.vbmeta.device_state locked -return false
-        java -jar bin/apktool/APKEditor.jar b -f -i tmp/OTA -o  "build/${app_patch_folder}/patched/OTA.apk"  $extra_args
+        java -jar bin/apktool/APKEditor.jar b -f -i tmp/OTA -o "build/${app_patch_folder}/patched/OTA.apk" $extra_args
          cp -rfv "build/${app_patch_folder}/patched/OTA.apk" "$targetOTA"
     fi
 fi
-
-
-    EXTEDNED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
-
-    targetAIUnit=$(find build/portrom/images/ -name "AIUnit.apk")
-    MODEL=PLG110
-    #PKZ110 Reno 14 Pro
-    #CPH2723 OnePlus 13s
-    #CPH2671 #Oppo Find N5 Global
-    #CPH2749 OnePlus 15
-    [[ "$regionmark" != CN ]] && MODEL=CPH2745
-
-    if [[ -f "build/${app_patch_folder}/patched/AIUnit.apk" ]]; then
-            blue "Copying processed OTA.apk"
-            cp -rfv "build/${app_patch_folder}/patched/AIUnit.apk" "$targetAIUnit"
-
-    elif [[ -f "$targetAIUnit" ]];then
-        blue "Unlock High-End AI features, Device Model: $MODEL"
-        cp -rf "$targetAIUnit" "tmp/$(basename "$targetAIUnit").bak"
-        java -jar bin/apktool/APKEditor.jar d -f -i "$targetAIUnit" -o tmp/AIUnit $extra_args
-        find tmp/AIUnit -type f -name "*.smali" -exec sed -i "s/sget-object \([vp][0-9]\+\), Landroid\/os\/Build;->MODEL:Ljava\/lang\/String;/const-string \1, \"$MODEL\"/g" {} +
-        targetSmali=$(find tmp -type f -name "UnitConfig.smali")
-        python3 bin/patchmethod_v2.py "$targetSmali" isAllWhiteConditionMatch
-        python3 bin/patchmethod_v2.py "$targetSmali" isWhiteConditionsMatch
-        python3 bin/patchmethod_v2.py "$targetSmali" isSupport
-
-        unit_config_list=$(find tmp/AIUnit -type f -name "unit_config_list.json")
-        jq --arg models_str "${EXTEDNED_MODELS[*]}" '
-    # Define array variables
-    ($models_str | split(" ")) as $new_models
-    |
-
-    # Execute `map` on input JSON array
-    map(
-        if has("whiteModels") and (.whiteModels | type) == "string" then
-        .whiteModels as $current |
-        if $current == "" then
-            .whiteModels = ($new_models | join(","))
-        else
-            ($current | split(",")) as $existing_models |
-            ($new_models | map(select(. as $m | $existing_models | index($m) == null))) as $unique_models |
-            if ($unique_models | length) > 0 then
-            .whiteModels = $current + "," + ($unique_models | join(","))
+EXTEDNED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
+targetAIUnit=$(find build/portrom/images/ -name "AIUnit.apk")
+MODEL=PLG110
+[[ "$regionmark" != CN ]] && MODEL=CPH2745
+if [[ -f "build/${app_patch_folder}/patched/AIUnit.apk" ]]; then
+    blue "Copying processed AIUnit.apk"
+    cp -rfv "build/${app_patch_folder}/patched/AIUnit.apk" "$targetAIUnit"
+elif [[ -f "$targetAIUnit" ]];then
+    blue "Unlock High-End AI features, Device Model: $MODEL"
+    cp -rf "$targetAIUnit" "tmp/$(basename "$targetAIUnit").bak"
+    java -jar bin/apktool/APKEditor.jar d -f -i "$targetAIUnit" -o tmp/AIUnit $extra_args
+    find tmp/AIUnit -type f -name "*.smali" -exec sed -i "s/sget-object \([vp][0-9]\+\), Landroid\/os\/Build;->MODEL:Ljava\/lang\/String;/const-string \1, \"$MODEL\"/g" {} +
+    targetSmali=$(find tmp -type f -name "UnitConfig.smali")
+    python3 bin/patchmethod_v2.py "$targetSmali" isAllWhiteConditionMatch
+    python3 bin/patchmethod_v2.py "$targetSmali" isWhiteConditionsMatch
+    python3 bin/patchmethod_v2.py "$targetSmali" isSupport
+    unit_config_list=$(find tmp/AIUnit -type f -name "unit_config_list.json")
+    jq --arg models_str "${EXTEDNED_MODELS[*]}" '
+        ($models_str | split(" ")) as $new_models
+        | map(
+            if has("whiteModels") and (.whiteModels | type) == "string" then
+                .whiteModels as $current |
+                if $current == "" then
+                    .whiteModels = ($new_models | join(","))
+                else
+                    ($current | split(",")) as $existing_models |
+                    ($new_models | map(select(. as $m | $existing_models | index($m) == null))) as $unique_models |
+                    if ($unique_models | length) > 0 then
+                        .whiteModels = $current + "," + ($unique_models | join(","))
+                    else . end
+                end
             else . end
-        end
-        else . end
-        |
-
-        if has("minAndroidApi") then .minAndroidApi = 30 else . end
-    )
+            | if has("minAndroidApi") then .minAndroidApi = 30 else . end
+        )
     ' "$unit_config_list" > "${unit_config_list}.bak" && mv "${unit_config_list}.bak" "$unit_config_list"
-        java -jar bin/apktool/APKEditor.jar b -f -i tmp/AIUnit -o "build/${app_patch_folder}/patched/AIUnit.apk"  $extra_args
-        cp -rfv "build/${app_patch_folder}/patched/AIUnit.apk" "$targetAIUnit"
-    fi
-
-if [[ "$port_android_version" == 16 ]] && [[ "$base_android_version" -lt 15 ]] ;then
-    # workaround fix AI Eraser
-    cp build/portrom/images/odm/lib64/libaiboost.so build/portrom/images/my_product/lib64/libaiboost.so
-    # sed -i 's|^/odm/lib64/libaiboost\.so.*$|/odm/lib64/libaiboost\.so u:object_r:same_process_hal_file:s0|' build/portrom/images/config/odm_file_contexts
-    # echo "/(vendor|odm)/lib(64)?/libaiboost\.so  u:object_r:same_process_hal_file:s0" >> build/portrom/images/vendor/etc/selinux/vendor_file_contexts
+    java -jar bin/apktool/APKEditor.jar b -f -i tmp/AIUnit -o "build/${app_patch_folder}/patched/AIUnit.apk" $extra_args
+    cp -rfv "build/${app_patch_folder}/patched/AIUnit.apk" "$targetAIUnit"
 fi
-
+if [[ "$port_android_version" == 16 ]] && [[ "$base_android_version" -lt 15 ]] ;then
+    cp build/portrom/images/odm/lib64/libaiboost.so build/portrom/images/my_product/lib64/libaiboost.so
+fi
 if [[ -f devices/common/xeutoolbox.zip ]] && [[ "$base_android_version" -lt 15 ]] && [[ "${portIsColorOSGlobal}" != true ]];then
-    blue "Integrated Xiami EU xeutoolbox"
-    # this causes OOS/Cos 16.0.1 boot into bootloader
-    #python3 bin/insert_selinux_policy.py build/portrom/images/system_ext/etc/selinux/system_ext_sepolicy.cil --config "${work_dir}/devices/common/xeu_toolbox_policy.json"
-    #echo "/system_ext/xbin/xeu_toolbox  u:object_r:xeu_toolbox_exec:s0" >> build/portrom/images/system_ext/etc/selinux/system_ext_file_contexts
-
-    echo "/system_ext/xbin/xeu_toolbox  u:object_r:toolbox_exec:s0" >> build/portrom/images/config/system_ext_file_contexts
-    echo "/system_ext/xbin/xeu_toolbox  u:object_r:toolbox_exec:s0" >> build/portrom/images/system_ext/etc/selinux/system_ext_file_contexts
-    echo "(allow init toolbox_exec (file ((execute_no_trans))))" >> build/portrom/images/system_ext/etc/selinux/system_ext_sepolicy.cil
-    unzip -o devices/common/xeutoolbox.zip -d build/portrom/images/
+    if ensure_resource_available "devices/common/xeutoolbox.zip"; then
+        blue "Integrated Xiami EU xeutoolbox"
+        unzip -o devices/common/xeutoolbox.zip -d build/portrom/images/
+        echo "/system_ext/xbin/xeu_toolbox u:object_r:toolbox_exec:s0" >> build/portrom/images/config/system_ext_file_contexts
+        echo "/system_ext/xbin/xeu_toolbox u:object_r:toolbox_exec:s0" >> build/portrom/images/system_ext/etc/selinux/system_ext_file_contexts
+        echo "(allow init toolbox_exec (file ((execute_no_trans))))" >> build/portrom/images/system_ext/etc/selinux/system_ext_sepolicy.cil
+    fi
 elif [[ "$base_android_version" -lt 15 ]] && [[ "${portIsColorOS}" != "true" ]];then
     targetGallery=$(find build/portrom/images/ -name "OppoGallery2.apk")
     if [[ -f "build/${app_patch_folder}/patched/OppoGallery2.apk" ]]; then
-            blue "Copying processed OppoGallery2"
-            cp -rfv "build/${app_patch_folder}/patched/OppoGallery2.apk" "$targetGallery"
-
+        blue "Copying processed OppoGallery2"
+        cp -rfv "build/${app_patch_folder}/patched/OppoGallery2.apk" "$targetGallery"
     elif [[ -f "$targetGallery" ]];then
         blue "Unlock AI Editor"
         cp -rf "$targetGallery" "tmp/$(basename "$targetGallery").bak"
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetGallery" -o tmp/Gallery $extra_args
-        python3 bin/patchmethod_v2.py -d tmp/Gallery -k "const-string.*\"ro.product.first_api_level\"" -hook "     const/16 reg, 0x22"
+        python3 bin/patchmethod_v2.py -d tmp/Gallery -k "const-string.*\"ro.product.first_api_level\"" -hook " const/16 reg, 0x22"
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Gallery -o "build/${app_patch_folder}/patched/OppoGallery2.apk" $extra_args
         cp -rfv "build/${app_patch_folder}/patched/OppoGallery2.apk" "$targetGallery"
     fi
 fi
-
 if [[ "${base_device_family}" == "OPSM8250" ]] || [[ "${base_device_family}" == "OPSM8350" ]];then
-    # Patch Battery Health Maximum capacity
     targetBattery=$(find build/portrom/images/ -name "Battery.apk")
     if [[ -f build/${app_patch_folder}/patched/Battery.apk ]]; then
         blue "Copying processed Battery.apk"
         cp -rfv build/${app_patch_folder}/patched/Battery.apk $targetBattery
-     
-    elif  [[ -f $targetBattery ]];then
+    elif [[ -f $targetBattery ]];then
         blue "Patch Battery Health Maximum capacity"
         cp -rf $targetBattery tmp/$(basename $targetBattery).bak
         java -jar bin/apktool/APKEditor.jar d -f -i $targetBattery -o tmp/Battery $extra_args
-        python3 bin/patchmethod_v2.py -d tmp/Battery/ -k "getUIsohValue" -m devices/common/patch_battery_soh.txt 
+        python3 bin/patchmethod_v2.py -d tmp/Battery/ -k "getUIsohValue" -m devices/common/patch_battery_soh.txt
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Battery -o build/${app_patch_folder}/patched/Battery.apk $extra_args
-        cp -rfv build/${app_patch_folder}/patched/Battery.apk $targetBattery 
+        cp -rfv build/${app_patch_folder}/patched/Battery.apk $targetBattery
     fi
-fi 
-
+fi
 if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
-
-    # Charging info in Settings
     targetSettings=$(find build/portrom/images/ -name "Settings.apk")
-
     if [[ -f $targetSettings ]];then
         blue "Charging info in Settings"
         cp -rf $targetSettings tmp/$(basename $targetSettings).bak
@@ -1192,33 +1569,29 @@ if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
         python3 bin/patchmethod_v2.py $targetSmali isPreferenceSupport
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o $targetSettings $extra_args
     fi
-fi 
-
+fi
 targetOplusLauncher=$(find build/portrom/images/ -name "OplusLauncher.apk")
-
 if [[ -f $targetOplusLauncher ]] && [[ $base_product_first_api_level -gt 34 ]];then
-	blue "Enabling RAM display"
-	cp -rf $targetOplusLauncher tmp/$(basename $targetOplusLauncher).bak
-	java -jar bin/apktool/APKEditor.jar d -f -i $targetOplusLauncher -o tmp/OplusLauncher $extra_args
-	targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
+blue "Enabling RAM display"
+cp -rf $targetOplusLauncher tmp/$(basename $targetOplusLauncher).bak
+java -jar bin/apktool/APKEditor.jar d -f -i $targetOplusLauncher -o tmp/OplusLauncher $extra_args
+targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
  python3 bin/patchmethod_v2.py $targetSmali getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
  java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o $targetOplusLauncher $extra_args
 fi
-
 targetSystemUI=$(find build/portrom/images/ -name "SystemUI.apk")
 if [[ -f build/${app_patch_folder}/patched/SystemUI.apk ]]; then
         blue "Copying processed SystemUI.apk"
         cp -rfv build/${app_patch_folder}/patched/SystemUI.apk $targetSystemUI
-     
-elif [[ -f "$targetSystemUI" ]]; then
     
+elif [[ -f "$targetSystemUI" ]]; then
+   
     cp -rf $targetSystemUI tmp/$(basename $targetSystemUI).bak
     java -jar bin/apktool/APKEditor.jar d -f -i $targetSystemUI -o tmp/SystemUI $extra_args
     blue "Enabling AOD (Panoramic/Fullscreen)"
     targetSmoothTransitionControllerSmali=$(find tmp/SystemUI -type f -name "SmoothTransitionController.smali")
     python3 bin/patchmethod_v2.py "$targetSmoothTransitionControllerSmali" setPanoramicStatusForApplication
     python3 bin/patchmethod_v2.py "$targetSmoothTransitionControllerSmali" setPanoramicSupportAllDayForApplication
-
     targetAODDisplayUtilSmali=$(find tmp/SystemUI -type f -name "AODDisplayUtil.smali")
     python3 bin/patchmethod_v2.py "$targetAODDisplayUtilSmali" isPanoramicProcessTypeNotSupportAllDay -return false
     if [[ $base_product_first_api_level -gt 34 ]];then
@@ -1230,76 +1603,50 @@ elif [[ -f "$targetSystemUI" ]]; then
         targetSmali=$(find tmp -type f -name "FeatureOption.smali")
         python3 bin/patchmethod_v2.py $targetSmali isSupportMyDevice
     fi
-    # CTS Patch: Always force isCtsTest to false to avoid hidden notification icons
     blue "Applying CTS patch (isCtsTest)"
     python3 bin/patchmethod_v2.py -d tmp/SystemUI -n isCtsTest -return false
-
-    # tmp workround
     for style_xml_file in $(find tmp/SystemUI -name "styles.xml");do
         sed -i "s/style\/null/7f1403f6/g" $style_xml_file
     done
     java -jar bin/apktool/APKEditor.jar b -f -i tmp/SystemUI -o build/${app_patch_folder}/patched/SystemUI.apk $extra_args
     cp -rfv build/${app_patch_folder}/patched/SystemUI.apk $targetSystemUI
 fi
-
 targetAOD=$(find build/portrom/images/ -name "Aod.apk")
-
 if [[ -f $targetAOD ]] && [[ $base_product_first_api_level -le 35 ]] ;then
-	blue "Forcibly enabling AOD Always-on for older models"
-	cp -rf $targetAOD tmp/$(basename $targetAOD).bak
-	java -jar bin/apktool/APKEditor.jar d -f -i $targetAOD -o tmp/Aod $extra_args
-	targetCommonUtilsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/CommonUtils.smali")
+blue "Forcibly enabling AOD Always-on for older models"
+cp -rf $targetAOD tmp/$(basename $targetAOD).bak
+java -jar bin/apktool/APKEditor.jar d -f -i $targetAOD -o tmp/Aod $extra_args
+targetCommonUtilsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/CommonUtils.smali")
     targetSettingsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/SettingsUtils.smali")
     python3 bin/patchmethod_v2.py $targetCommonUtilsSmali isSupportFullAod -return true
     python3 bin/patchmethod_v2.py $targetSettingsSmali getKeyAodAllDaySupportSettings -return true
     java -jar bin/apktool/APKEditor.jar b -f -i tmp/Aod -o $targetAOD $extra_args
 fi
-yellow "Deleting unnecessary apps" "Debloating..." 
-# List of apps to be removed
-
+yellow "Deleting unnecessary apps" "Debloating..."
 debloat_apps=("HeartRateDetect" "Browser")
-#kept_apps=("Clock" "FileManager" "KeKeThemeSpace" "SogouInput" "Weather" "Calendar")
-#kept_apps=("BackupAndRestore" "Calculator2" "Calendar" "Clock" "FileManager" "OppoNote2" "OppoWeather2" "UPTsmService" "Music")
 kept_apps=("OppoNote2" "OppoWeather2")
-#kept_apps=()
-
 if [[ $super_extended == "true" ]] && [[ $pack_method == "stock" ]] && [[ -f build/baserom/images/reserve.img ]]; then
     rm -rf build/baserom/images/reserve.img
 elif [[ $super_extended == "false" ]] && [[ $pack_method == "stock" ]] && [[ -f build/baserom/images/reserve.img ]]; then
-    #extract_partition "${work_dir}/build/baserom/images/reserve.img" "${work_dir}/build/baserom/images/"
-    #if [[ -f ext/del-app-ksu-module/system/product/app/* ]];then
-    ##    rm -rf ext/del-app-ksu-module/system/product/app/*
-    #fi
-    #ext_moudle_app_folder="ext/del-app-ksu-module/system/product/app"
     for delapp in $(find build/portrom/images/ -maxdepth 3 -path "*/del-app/*" -type d);do
-        
         app_name=$(basename "$delapp")
-
-        # Check if the app is in kept_apps, skip if true
         if [[ " ${kept_apps[@]} " =~ " ${app_name} " ]]; then
             echo "Skipping kept app: $app_name"
-        continue
+            continue
         fi
-        #mv -fv $delapp ${ext_moudle_app_folder}/
-        rm -rfv $delapp 
-    done 
-
-    for debloat_app in "${debloat_apps[@]}"; do
-    # Find the app directory
-    app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
-    
-    # Check if the directory exists before removing
-    if [[ -d "$app_dir" ]]; then
-        yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
-        rm -rfv "$app_dir"
-    fi
+        rm -rfv $delapp
     done
-
+    for debloat_app in "${debloat_apps[@]}"; do
+        app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
+        if [[ -d "$app_dir" ]]; then
+            yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
+            rm -rfv "$app_dir"
+        fi
+    done
     cp -rfv devices/common/via build/portrom/images/product/app/
 elif [[ $super_extended == "false" ]] && [[ $base_product_model == "KB2000" ]] && [[ "$is_ab_device" == true ]];then
     for delapp in $(find build/portrom/images/ -maxdepth 3 -path "*/del-app/*" -type d ); do
         app_name=$(basename ${delapp})
-        
         keep=false
         for kept_app in "${kept_apps[@]}"; do
             if [[ $app_name == *"$kept_app"* ]]; then
@@ -1307,49 +1654,35 @@ elif [[ $super_extended == "false" ]] && [[ $base_product_model == "KB2000" ]] &
                 break
             fi
         done
-        
         if [[ $keep == false ]]; then
             debloat_apps+=("$app_name")
         fi
-
     done
     for debloat_app in "${debloat_apps[@]}"; do
-    # Find the app directory
-    app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
-    
-    # Check if the directory exists before removing
-    if [[ -d "$app_dir" ]]; then
-        yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
-        rm -rfv "$app_dir"
-    fi
+        app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
+        if [[ -d "$app_dir" ]]; then
+            yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
+            rm -rfv "$app_dir"
+        fi
     done
 elif [[ $super_extended == "false" ]] && [[ $base_product_model == "KB200"* ]] && [[ "$is_ab_device" == true ]];then
     debloat_apps=("Facebook" "YTMusic" "GoogleHome" "GoogleOne" "Videos_del" "Drive_del" "ConsumerIRApp" "YouTube" "Gmail2" "Maps" "Wellbeing" "OPForum" "INOnePlusStore" "YTMusic_del" "ConsumerIRApp" "Meet")
     for debloat_app in "${debloat_apps[@]}"; do
-    # Find the app directory
-    app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
-    
-    # Check if the directory exists before removing
-    if [[ -d "$app_dir" ]]; then
-        yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
-        rm -rfv "$app_dir"
-    fi
+        app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
+        if [[ -d "$app_dir" ]]; then
+            yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
+            rm -rfv "$app_dir"
+        fi
     done
-    
-    #rm -rfv build/portrom/images/my_stock/del-app/*
 elif [[ $super_extended == "false" ]] && [[ $base_product_model == "LE2101" ]];then
-      debloat_apps=("Facebook" "YTMusic" "GoogleHome" "GoogleOne" "Videos_del" "Drive_del" "ConsumerIRApp" "YouTube" "Gmail2" "Maps" "Wellbeing" "OPForum" "INOnePlusStore" "YTMusic_del" "ConsumerIRApp" "Meet")
+    debloat_apps=("Facebook" "YTMusic" "GoogleHome" "GoogleOne" "Videos_del" "Drive_del" "ConsumerIRApp" "YouTube" "Gmail2" "Maps" "Wellbeing" "OPForum" "INOnePlusStore" "YTMusic_del" "ConsumerIRApp" "Meet")
     for debloat_app in "${debloat_apps[@]}"; do
-    # Find the app directory
-    app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
-    
-    # Check if the directory exists before removing
-    if [[ -d "$app_dir" ]]; then
-        yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
-        rm -rfv "$app_dir"
-    fi
+        app_dir=$(find build/portrom/images/ -type d -name "*$debloat_app*")
+        if [[ -d "$app_dir" ]]; then
+            yellow "Deleting directory: $app_dir" "Removing directory: $app_dir"
+            rm -rfv "$app_dir"
+        fi
     done
-  #rm -rfv build/portrom/images/my_stock/del-app/*
 fi
 rm -rf build/portrom/images/product/etc/auto-install*
 rm -rf build/portrom/images/system/verity_key
@@ -1358,43 +1691,21 @@ rm -rf build/portrom/images/product/verity_key
 rm -rf build/portrom/images/system/recovery-from-boot.p
 rm -rf build/portrom/images/vendor/recovery-from-boot.p
 rm -rf build/portrom/images/product/recovery-from-boot.p
-
-# Fix build.prop
-
 sed -i "/ro.oplus.audio.*/d" build/portrom/images/my_product/build.prop
-
 prepare_base_prop
 add_prop_from_port
-
 blue "Modifying build.prop" "Modifying build.prop"
-
-
-#change the locale to English
 export LC_ALL=en_US.UTF-8
 buildDate=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
 buildUtc=$(date +%s)
 for i in $(find build/portrom/images -type f -name "build.prop");do
     blue "Processing: ${i}" "modifying ${i}"
-    # sed -i "s/ro.build.date=.*/ro.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.build.date.utc=.*/ro.build.date.utc=${buildUtc}/g" ${i}
-    # sed -i "s/ro.odm.build.date=.*/ro.odm.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.odm.build.date.utc=.*/ro.odm.build.date.utc=${buildUtc}/g" ${i}
-    # sed -i "s/ro.vendor.build.date=.*/ro.vendor.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.vendor.build.date.utc=.*/ro.vendor.build.date.utc=${buildUtc}/g" ${i}
-    # sed -i "s/ro.system.build.date=.*/ro.system.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.system.build.date.utc=.*/ro.system.build.date.utc=${buildUtc}/g" ${i}
-    # sed -i "s/ro.product.build.date=.*/ro.product.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.product.build.date.utc=.*/ro.product.build.date.utc=${buildUtc}/g" ${i}
-    # sed -i "s/ro.system_ext.build.date=.*/ro.system_ext.build.date=${buildDate}/g" ${i}
-    # sed -i "s/ro.system_ext.build.date.utc=.*/ro.system_ext.build.date.utc=${buildUtc}/g" ${i}
     sed -i "s/persist.sys.timezone=.*/persist.sys.timezone=Asia\/Shanghai/g" ${i}
-    # Global replacement of device codes (Source -> Base Device)
     sed -i "s/$port_device_code/$base_device_code/g" ${i}
     sed -i "s/$port_product_model/$base_product_model/g" ${i}
     sed -i "s/$port_product_name/$base_product_name/g" ${i}
     sed -i "s/$port_my_product_type/$base_my_product_type/g" ${i}
     sed -i "s/$port_product_device/$base_product_device/g" ${i}
-    # Overwrite build user info
     sed -i "s/ro.build.user=.*/ro.build.user=${build_user}/g" ${i}
     sed -i "s/ro.build.display.id=.*/ro.build.display.id=${target_display_id}/g" ${i}
     sed -i "s/ro.oplus.radio.global_regionlock.enabled=.*/ro.oplus.radio.global_regionlock.enabled=false/g" ${i}
@@ -1403,66 +1714,44 @@ for i in $(find build/portrom/images -type f -name "build.prop");do
     if [[ $portIsColorOSGlobal == true ]];then
         sed -i 's/=OnePlus[[:space:]]*$/=OPPO/' ${i}
     fi
-
 done
-
-# Camera (and some system apps) read these props; ensure they exist even if absent in the source build.prop.
 add_prop_v2 "ro.vendor.oplus.market.name" "${base_market_name}"
 add_prop_v2 "ro.vendor.oplus.market.enname" "${base_market_name}"
-
 remove_prop_v2 "persist.oplus.software.audio.right_volume_key"
 remove_prop_v2 "persist.oplus.software.alertslider.location"
-
-
 sed -i -e '$a\'$'\n''persist.adb.notify=0' build/portrom/images/system/system/build.prop
 sed -i -e '$a\'$'\n''persist.sys.usb.config=mtp,adb' build/portrom/images/system/system/build.prop
 sed -i -e '$a\'$'\n''persist.sys.disable_rescue=true' build/portrom/images/system/system/build.prop
-
 base_rom_density=$(grep "ro.sf.lcd_density" --include="*.prop" -r build/baserom/images/my_product | head -n 1 | cut -d "=" -f2)
 [ -z ${base_rom_density} ] && base_rom_density=480
-
-# if grep -q "ro.sf.lcd_density" build/portrom/images/my_product/build.prop ;then
-#         sed -i "s/ro.sf.lcd_density=.*/ro.sf.lcd_density=${base_rom_density}/g" build/portrom/images/my_product/build.prop
-# else
-#         echo "ro.sf.lcd_density=${base_rom_density}" >> build/portrom/images/my_product/build.prop
-# fi
-
-# brand require lowercase 
 if [[ ${base_vendor_brand,,} != ${port_vendor_brand,,} ]] && [[ $portIsColorOSGlobal == false ]];then
-    # Global ColorOS needs to be Oppo brand or stuck on 
     sed -i "s/ro.oplus.image.system_ext.brand=.*/ro.oplus.image.system_ext.brand=${base_vendor_brand,,}/g" build/portrom/images/system_ext/etc/build.prop
 fi
-
-# fix bootloop
 if [[ -f build/baserom/images/my_product/etc/extension/sys_game_manager_config.json ]];then
     cp -rf build/baserom/images/my_product/etc/extension/sys_game_manager_config.json build/portrom/images/my_product/etc/extension/
 else
     rm -rf build/portrom/images/my_product/etc/extension/sys_game_manager_config.json
 fi
-
 if [[ ! -f build/baserom/images/my_product/etc/extension/sys_graphic_enhancement_config.json ]];then
     rm -rf build/portrom/images/my_product/etc/extension/sys_graphic_enhancement_config.json
 else
     cp -rf build/baserom/images/my_product/etc/extension/sys_graphic_enhancement_config.json build/portrom/images/my_product/etc/extension/
 fi
-
 if [[ $(cat build/baserom/images/my_product/build.prop | grep "ro.oplus.audio.effect.type" | cut -d "=" -f 2) == "dolby" ]] ;then
    blue "Fixing Dolby Acoustics + App Specific volume adjustment (SM8250/SM8350)" "Fix Dolby + App Specific volume adjustment for SM8250/SM8350"
-    #cp $source_dolby_lib build/portrom/images/system_ext/lib64/
-    cp build/baserom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml build/portrom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml
-    unzip -o devices/common/dolby_fix.zip -d build/portrom/images/ 
+   cp build/baserom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml build/portrom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml
+   if ensure_resource_available "devices/common/dolby_fix.zip"; then
+       unzip -o devices/common/dolby_fix.zip -d build/portrom/images/
+   fi
 fi
-
 if [[ -f build/portrom/images/vendor/lib64/vendor.oplus.hardware.radio-V2-ndk_platform.so ]] && \
    [[ ${base_device_family} == "OPSM8350" ]] && \
-   [[ -f devices/common/ril_fix_A16_SM8350.zip ]]; then
+   ensure_resource_available "devices/common/ril_fix_A16_SM8350.zip"; then
     blue "Fixing RIL..."
     unzip -o devices/common/ril_fix_A16_SM8350.zip -d ${work_dir}/build/portrom/images/vendor/
     rm -f build/portrom/images/vendor/lib/vendor.oplus.hardware.radio-V1-ndk_platform.so \
           build/portrom/images/vendor/lib64/vendor.oplus.hardware.radio-V1-ndk_platform.so
 fi
-
-# Fix wechat/whatsapp volume isue
 cp -rf build/baserom/images/my_product/etc/audio*.xml build/portrom/images/my_product/etc/
 cp -rf build/baserom/images/my_product/etc/default_volume_tables.xml build/portrom/images/my_product/etc/
 while IFS= read -r audio_cfg; do
@@ -1471,43 +1760,32 @@ while IFS= read -r audio_cfg; do
     mkdir -p "$(dirname "$dest_path")"
     cp -rfv "$audio_cfg" "$dest_path"
 done < <(find build/baserom/images/vendor build/baserom/images/odm -type f \( -name "audio_policy*.xml" -o -name "audio_platform*.xml" -o -name "mixer_paths*.xml" -o -name "audio_effects*.xml" \))
-
 if [[ -d build/baserom/images/my_product/etc/breenospeech2 ]];then
     cp -rf build/baserom/images/my_product/etc/breenospeech2/* build/portrom/images/my_product/etc/breenospeech2/
 fi
 rm -rf build/portrom/images/my_product/etc/fusionlight_profile/*
 cp -rf build/baserom/images/my_product/etc/fusionlight_profile/* build/portrom/images/my_product/etc/fusionlight_profile/
-# Fix game audio issue on 15.0.2 (13t)
-
-
 sed -i "/persist.vendor.display.pxlw.iris_feature=.*/d" build/portrom/images/my_product/etc/bruce/build.prop
-
 if grep -q "ro.build.version.oplusrom.display" build/portrom/images/my_manifest/build.prop;then
     sed -i '/^ro.build.version.oplusrom.display=/ s/$/ /' build/portrom/images/my_manifest/build.prop
 else
     sed -i '/^ro.build.version.oplusrom.display=/ s/$/ /' build/portrom/images/my_product/etc/bruce/build.prop
 fi
-
 propfile="build/portrom/images/my_product/etc/bruce/build.prop"
-
 if [[ $portIsColorOSGlobal == true ]]; then
     MODEL_MAGIC="CPH2659,BRAND:OPPO"
     MODEL_AIUNIT="CPH2659,BRAND:OPPO"
-
 elif [[ $portIsOOS == true ]]; then
     MODEL_MAGIC="CPH2659,BRAND:OPPO"
     MODEL_AIUNIT="CPH2745,BRAND:OnePlus"
-
 else
     MODEL_MAGIC="PLK110,BRAND:OnePlus"
     MODEL_AIUNIT="PLK110,BRAND:OnePlus"
 fi
-
 {
     echo "persist.oplus.prophook.com.oplus.ai.magicstudio=MODEL:${MODEL_MAGIC}"
     echo "persist.oplus.prophook.com.oplus.aiunit=MODEL:${MODEL_AIUNIT}"
 } >> "$propfile"
-
 if [[ "$port_vendor_brand" == "realme" ]];then
     echo "persist.oplus.prophook.com.coloros.smartsidebar=\"BRAND:realme\"" >> "$propfile"
 fi
@@ -1522,29 +1800,21 @@ remove_prop_v2 "ro.oplus.audio.support.foldingmode"
 remove_prop_v2 "ro.config.fold_disp"
 remove_prop_v2 "persist.oplus.display.fold.support"
 remove_prop_v2 "ro.oplus.haptic"
-
 remove_prop_v2 "ro.vendor.mtk"
 remove_prop_v2 "ro.oplus.mtk"
-# OnePlus 8T: Fix OpSynergy crash 
 remove_prop_v2 "persist.sys.oplus.wlan.atpc.qcom_use_iw"
-
 remove_prop_v2 "ro.product.oplus.cpuinfo"
-remove_prop_v2
 if [[ $base_android_version -lt 15 ]] && [[ $port_android_version -gt 15 ]];then
-    remove_prop_v2 "ro.lcd.display.screen" 
+    remove_prop_v2 "ro.lcd.display.screen"
     remove_prop_v2 "ro.display.brightness"
     remove_prop_v2 "ro.oplus.lcd.display"
-    #remove_prop_v2 "ro.display.brightness.curve.name" force
 fi
-
 add_prop_v2 "ro.oplus.game.camera.support_1_0" "true"
 add_prop_v2 "ro.oplus.audio.quiet_start" "true"
 if [[ $portIsOOS == "true" ]];then
     remove_prop_v2 "ro.oplus.camera.quickshare.support" force
 fi
-
 if [[ $port_android_version -lt 16 ]];then
-
     if [[ $base_device_family == "OPSM8250" ]] || [[ $base_device_family == "OPSM8350" ]];then
         add_prop_v2 "persist.sys.oplus.anim_level" "2"
     else
@@ -1552,62 +1822,41 @@ if [[ $port_android_version -lt 16 ]];then
     fi
 fi
 add_prop_v2 "ro.sf.lcd_density" "${base_rom_density}"
-
 cp -rf build/baserom/images/my_product/app/com.oplus.vulkanLayer build/portrom/images/my_product/app/
 cp -rf build/baserom/images/my_product/app/com.oplus.gpudrivers.* build/portrom/images/my_product/app/
-
 mkdir -p tmp/etc/permissions tmp/etc/extension
 cp -fv build/portrom/images/my_product/etc/permissions/*.xml tmp/etc/permissions/
 cp -fv build/portrom/images/my_product/etc/extension/*.xml tmp/etc/extension/
 cp -rf build/baserom/images/my_product/etc/permissions/*.xml build/portrom/images/my_product/etc/permissions/
-find tmp/etc/permissions/ -type f \( -name "multimedia*.xml" -o -name "*permissions*.xml" -o -name "*google*.xml"  -o -name "*configs*.xml" -o -name "*gsm*.xml" -o -name "feature_activity_preload.xml" -o -name "*gemini*.xml" -o -name "*gms*.xml" \) -exec cp -fv {} build/portrom/images/my_product/etc/permissions/ \;
-
-
+find tmp/etc/permissions/ -type f \( -name "multimedia*.xml" -o -name "*permissions*.xml" -o -name "*google*.xml" -o -name "*configs*.xml" -o -name "*gsm*.xml" -o -name "feature_activity_preload.xml" -o -name "*gemini*.xml" -o -name "*gms*.xml" \) -exec cp -fv {} build/portrom/images/my_product/etc/permissions/ \;
 if [[ $regionmark != "CN" ]];then
-   for i in com.android.contacts com.android.incallui com.android.mms com.oplus.blacklistapp com.oplus.phonenoareainquire com.ted.number; do 
+   for i in com.android.contacts com.android.incallui com.android.mms com.oplus.blacklistapp com.oplus.phonenoareainquire com.ted.number; do
         sed -i "/$i/d" build/portrom/images/my_stock/etc/config/app_v2.xml
    done
 fi
-
 cp -rf build/baserom/images/my_product/etc/permissions/*.xml build/portrom/images/my_product/etc/permissions/
 cp -rf build/baserom/images/my_product/etc/extension/*.xml build/portrom/images/my_product/etc/extension/
-cp -rf  build/baserom/images/my_product/etc/refresh_rate_config.xml build/portrom/images/my_product/etc/refresh_rate_config.xml
-
-#cp -rf build/baserom/images/my_product/etc/extension/*.xml build/portrom/images/my_product/etc/extension/
-
-cp -rf  build/baserom/images/my_product/etc/sys_resolution_switch_config.xml build/portrom/images/my_product/etc/sys_resolution_switch_config.xml
-
+cp -rf build/baserom/images/my_product/etc/refresh_rate_config.xml build/portrom/images/my_product/etc/refresh_rate_config.xml
+cp -rf build/baserom/images/my_product/etc/sys_resolution_switch_config.xml build/portrom/images/my_product/etc/sys_resolution_switch_config.xml
 cp -rf build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml build/portrom/images/my_product/etc/permissions/
-# add_feature "com.android.systemui.support_media_show" build/portrom/images/my_product/etc/extension/com.oplus.app-features.xml
-
-###############################################################################
-# Adding/Deleting Feature Flags (XML)
-#
-# `add_feature_v2` / `remove_feature` mainly edits `com.oplus.*-features*.xml` 
-# to enable or disable functional flags.
-# The `^...` in strings is a "description label" (human readable); only the left side is evaluated.
-###############################################################################
-
 oplus_features=(
-    "oplus.software.directservice.finger_flashnotes_enable^Xiao-Bu Memory" 
-    "oplus.software.support_quick_launchapp"  
-    "oplus.software.support_blockable_animation" 
-    "oplus.software.support.zoom.multi_mode" 
-    #"oplus.software.radio.networkless_support^Offline Calling (Networkless Call)" 
-    #"oplus.software.display.ai_eyeprotect_v1_support^AI Eye Protection"
+    "oplus.software.directservice.finger_flashnotes_enable^Xiao-Bu Memory"
+    "oplus.software.support_quick_launchapp"
+    "oplus.software.support_blockable_animation"
+    "oplus.software.support.zoom.multi_mode"
     "oplus.software.display.reduce_white_point^Reduce White Point"
     "oplus.software.audio.media_control"
     "oplus.software.support.zoom.open_wechat_mimi_program"
     "oplus.software.support.zoom.center_exit"
-    "oplus.software.support.zoom.game_enter" 
+    "oplus.software.support.zoom.game_enter"
     "oplus.software.coolex.support"
     "oplus.software.display.game.dapr_enable"
     "oplus.software.display.eyeprotect_game_support"
-    "oplus.software.multi_app.volume.adjust.support^App Specific Volume (Incompatible with A13 devices)" 
+    "oplus.software.multi_app.volume.adjust.support^App Specific Volume (Incompatible with A13 devices)"
     "oplus.software.systemui.navbar_pick_color^Added in 15.0.2.201"
     "oplus.software.string_gc_support"
     "oplus.software.display.rgb_ball_support^Color Temp Ball"
-    "oplus.software.camera_volume_quick_launch" #GT5Pro
+    "oplus.software.camera_volume_quick_launch"
     "oplus.software.display.intelligent_color_temperature_support"
     "oplus.software.display.oha_support"
     "oplus.software.display.smart_color_temperature_rhythm_health_support"
@@ -1619,14 +1868,14 @@ oplus_features=(
     "oplus.software.display.game_dark_eyeprotect_support^Game Assistant Night Eye Protection"
     "oplus.software.systemui.navbar_pick_color^Optimize Navbar Color Retrieval"
     "oplus.software.smart_sidebar_video_assistant^Sidebar Video Assistant"
-    "oplus.video.audio.volume.enhancement^Video Volume Boost" 
+    "oplus.video.audio.volume.enhancement^Video Volume Boost"
     "oplus.software.display.lux_small_debounce_expand_support"
     "oplus.hardware.display.no_bright_eyes_low_freq_strobe^Flicker at Low Brightness"
     "oplus.software.audio.super_volume_4x^400% Super Volume"
     "oplus.software.radio.networkless_sms_support"
     "com.oplus.location.car_phone_connection"
-   "oplus.software.display.enhance_brightness_with_uidimming^LocalHDR"
-   "oplus.software.adaptive_smooth_animation^Shanhai Communication Network Engine"
+    "oplus.software.display.enhance_brightness_with_uidimming^LocalHDR"
+    "oplus.software.adaptive_smooth_animation^Shanhai Communication Network Engine"
     "oplus.software.radio.ai_link_boost"
     "oplus.software.radio.ai_link_boost_notification"
     "oplus.software.radio.ai_link_boost_railway_notification"
@@ -1634,18 +1883,12 @@ oplus_features=(
     "oplus.software.radio.hfp_comm_shared_support^iPhone Integration"
     "oplus.hardware.display.motion_sickness^Motion Sickness Reduction Guidance"
 )
-
-for oplus_feature in ${oplus_features[@]}; do 
+for oplus_feature in ${oplus_features[@]}; do
     add_feature_v2 oplus_feature $oplus_feature
 done
-
 if [[ $vndk_version -gt 33 ]];then
  add_feature_v2 oplus_feature "oplus.software.radio.networkless_support^Offline Calling (Networkless Call)"
 fi
-#add_feature "com.android.systemui.aod_notification_infor_text" build/portrom/images/my_product/etc/extension/com.oplus.app-features.xml
-#add_feature 'com.oplus.mediacontroller.fluidConfig^^args=\"String:{&quot;statusbar_enable_default&quot;:1}' build/portrom/images/my_product/etc/extension/com.oplus.app-features.xml
-
-
 app_features=(
     "os.personalization.flip.agile_window.enable"
     "os.personalization.wallpaper.live.ripple.enable"
@@ -1667,17 +1910,15 @@ app_features=(
     "com.android.systemui.qs_deform_enable^^args=\"boolean:true\""
     "com.oplus.mediaturbo.tencent_meeting^Tencent Meeting^args=\"boolean:true\""
     "com.oplus.note.aigc.ai_rewrtie.support^AI Writing Assistance"
-    #"feature.super_settings_smart_touch_v2.support^Touch Through Screen Film V2"
     "com.oplus.games.show_bypass_charging_when_gameapps^Bypass Charging^args=\"boolean:true\""
     "com.oplus.wallpapers.livephoto_wallpaper^^args=\"boolean:true\""
     "com.oplus.battery.autostart_limit_num^^args=\"String:8|10-16|15-24|20\""
     "com.android.launcher.recent_lock_limit_num^^args=\"String:8|10-16|15-24|20\""
     "com.oplus.battery.whitelist_vowifi^^args=\"boolean:true\""
-    "com.oplus.battery.support.smart_refresh" # GT5Pro
-    "com.oplus.battery.life.mode.notificate^^args=\"int:1\"" # 13T indicate if the device is support life mode 1.0：1 2.0：2 
-    "feature.support.game.AI_PLAY" #GT5Pro
-    "feature.support.game.AI_PLAY_version3" # GT5Pro
-
+    "com.oplus.battery.support.smart_refresh"
+    "com.oplus.battery.life.mode.notificate^^args=\"int:1\""
+    "feature.support.game.AI_PLAY"
+    "feature.support.game.AI_PLAY_version3"
     "feature.super_app_alive.support_min_ram^^args=\"int:12\""
     "feature.super_app_alive.support_flag^^args=\"int:15\""
     "feature.super_alive_game.support^^args=\"int:1\""
@@ -1687,12 +1928,11 @@ app_features=(
     "feature.support.game.ASSIST_KEY"
     "oplus.software.vibration_custom"
     "com.oplus.smartmediacontroller.lss_assistant_enable^Sidebar Audio Separation Assistant"
-    # Enabling "com.android.incallui.share_screen_and_touch_cmd_support^In-call Touch/Screen Sharing" crashes OOS calls; disabled
     "com.oplus.phonemanager.ai_voice_detect^Synthesized Voice^args=\"int:1\""
     "com.oplus.directservice.aitoolbox_enable^^args=\"boolean:true\""
     "com.coloros.support_gt_boost^^args=\"boolean:true\""
     "com.oplus.aicall.call_translate"
-    "com.oplus.gesture.camera_space_gesture_support^Air Gestures" # Needs replacement with OplusGesture app for RM devices
+    "com.oplus.gesture.camera_space_gesture_support^Air Gestures"
     "com.oplus.gesture.intelligent_perception"
     "com.oplus.dmp.aiask_enable^AI Search^args=\"int:1\""
     "os.graphic.gallery.photoeditor.aibesttake^Best Take^args=\"int:1\""
@@ -1700,7 +1940,6 @@ app_features=(
     "com.oplus.mediaturbo.transcoding^^args=\"boolean:true\""
     "com.android.launcher.app_advice_autoadd^^args=\"boolean:true\""
     "com.android.launcher.INDICATOR_BREENO_ENTRY_ENABLE^Xiao-Bu Hints on Home Screen^args=\"boolean:true\""
-    #ColorOS 16 new added
     "com.oplus.systemui.panoramic_aod.enable^AOD^args=\"boolean:true\""
     "oplus.software.disable_aod_all_day_mode^^args=\"boolean:false\""
     "com.oplus.systemui.panoramic_aod_all_day_default_open.enable^^args=\"boolean:true\""
@@ -1718,7 +1957,7 @@ app_features=(
     "os.graphic.gallery.collage.asset_bounds_break^Outside-the-frame^args=\"boolean:true\""
     "os.graphic.gallery.collage.livephoto^^args=\"boolean:true\""
 )
-for app_feature in ${app_features[@]}; do 
+for app_feature in ${app_features[@]}; do
     add_feature_v2 app_feature $app_feature
 done
 add_feature_v2 permission_oplus_feature "oplus.software.game.cold.start.speedup.enable"
@@ -1741,104 +1980,72 @@ else
   remove_feature "os.charge.settings.wirelesschargingcoil.position"
   remove_feature "oplus.power.onwirelesscharger.support"
 fi
-
-# Call recording restrictions (Remove region/carrier control)
-xmlstarlet ed -L -d '//app_feature[@name="com.android.incallui.support_call_record_prompt_mcc"]' build/portrom/images/my_stock/etc/extension/com.oplus.app-features.xml 
-
-xmlstarlet ed -L -d '//app_feature[@name="com.android.incallui.hide_call_record_mcc"]' build/portrom/images/my_stock/etc/extension/com.oplus.app-features.xml 
-
-#echo "ro.build.version.oplusrom=$ota_version" >> build/portrom/images/system/system/build.prop
-#echo "oplus_hex_nv_id=$oplus_hex_nv_id" >> build/portrom/images/system/system/build.prop
-
+xmlstarlet ed -L -d '//app_feature[@name="com.android.incallui.support_call_record_prompt_mcc"]' build/portrom/images/my_stock/etc/extension/com.oplus.app-features.xml
+xmlstarlet ed -L -d '//app_feature[@name="com.android.incallui.hide_call_record_mcc"]' build/portrom/images/my_stock/etc/extension/com.oplus.app-features.xml
 if [[ "$port_vendor_brand" == "realme" ]];then
-     unzip -o devices/common/ai_memory_16.zip -d build/portrom/images/
-fi
-
-aimemory_app=$(find build/portrom -type f -name "AIMemory.apk")
-
-if [[ ! -f $aimemory_app ]]; then
-    
-    if [[ $regionmark == "CN" ]];then 
-        unzip -o devices/common/ai_memory.zip -d build/portrom/images/
-    else
-         unzip -o devices/common/ai_memory_in/aimemory.zip -d build/portrom/images/
-    fi
-fi
-
-for pkg in com.oplus.aimemory com.oplus.appbooster; do 
-    if ! grep -q "<enable pkg=\"$pkg\"" build/portrom/images/my_product/etc/config/app_v2.xml;then
-        sed -i "/<\/app>/i\  <enable pkg=\"$pkg\" priority=\"7\"/>" build/portrom/images/my_product/etc/config/app_v2.xml
-    fi
-done
-
-if [[ ! -d build/portrom/images/my_product/etc/aisubsystem ]]; then
-     if [[ $regionmark != "CN" ]];then 
-         unzip -o devices/common/ai_memory_in/aisubsystem.zip -d build/portrom/images/
+     if ensure_resource_available "devices/common/ai_memory_16.zip"; then
+         unzip -o devices/common/ai_memory_16.zip -d build/portrom/images/
      fi
 fi
-
-###############################################################################
-# GT Mode / Smart Sidebar etc. (Feature flags for Realme series)
-#
-# If `devices/common/GTMode/overlay` exists, add required features for GT Mode 
-# and swap overlays depending on device/region (Realme / CN, etc.).
-###############################################################################
+aimemory_app=$(find build/portrom -type f -name "AIMemory.apk")
+if [[ ! -f $aimemory_app ]]; then
+    if [[ $regionmark == "CN" ]];then
+        if ensure_resource_available "devices/common/ai_memory.zip"; then
+            unzip -o devices/common/ai_memory.zip -d build/portrom/images/
+        fi
+    else
+         if ensure_resource_available "devices/common/ai_memory_in/aimemory.zip"; then
+             unzip -o devices/common/ai_memory_in/aimemory.zip -d build/portrom/images/
+         fi
+    fi
+fi
+for pkg in com.oplus.aimemory com.oplus.appbooster; do
+    if ! grep -q "<enable pkg=\"$pkg\"" build/portrom/images/my_product/etc/config/app_v2.xml;then
+        sed -i "/<\/app>/i\ <enable pkg=\"$pkg\" priority=\"7\"/>" build/portrom/images/my_product/etc/config/app_v2.xml
+    fi
+done
+if [[ ! -d build/portrom/images/my_product/etc/aisubsystem ]]; then
+     if [[ $regionmark != "CN" ]];then
+         if ensure_resource_available "devices/common/ai_memory_in/aisubsystem.zip"; then
+             unzip -o devices/common/ai_memory_in/aisubsystem.zip -d build/portrom/images/
+         fi
+     fi
+fi
 if [[ -d devices/common/GTMode/overlay ]] && [[ $port_android_version != "16" ]];then
-    #add_feature "oplus.software.support.gt.mode" build/portrom/images/my_product/etc/permissions/oplus.feature.android.xml
-    add_feature_v2 oplus_feature "oplus.software.support.gt.mode^GT Mode" 
+    add_feature_v2 oplus_feature "oplus.software.support.gt.mode^GT Mode"
     add_feature_v2 app_feature "com.android.settings.device_rm^Realme Device: Required for GT Mode display"
-    #add_feature "com.oplus.battery.support.gt_open_gamecenter" build/portrom/images/my_product/etc/extension/com.oplus.app-features.xml
     if [[ $port_vendor_brand != "realme" ]];then
         cp -rfv devices/common/GTMode/overlay/* build/portrom/images/
     fi
 fi
-
 if [[ "$port_vendor_brand" == "realme" ]] && [[ $regionmark == "CN" ]] ;then
-    add_feature_v2 oplus_feature "oplus.software.support.gt.mode^GT Mode" 
+    add_feature_v2 oplus_feature "oplus.software.support.gt.mode^GT Mode"
     add_feature_v2 app_feature "com.android.settings.device_rm^Realme Device: Required for GT Mode display"
     add_feature_v2 app_feature "com.oplus.smartsidebar.space.roulette.support^AI Portal" \
-            "com.oplus.smartsidebar.space.roulette.bootreg" \ 
+            "com.oplus.smartsidebar.space.roulette.bootreg" \
             "com.coloros.support_gt_boost^^args=\"boolean:true\""
     add_feature_v2 permission_oplus_feature "oplus.software.aigc_global_drag" "oplus.software.smart_loop_drag"
-
-    #temp
-    #unzip -o devices/common/glassui_rui7.zip -d build/portrom/images/
 fi
-
-#echo "ro.surface_flinger.supports_background_blur=1" >> build/portrom/images/my_product/build.prop
-#echo "ro.surface_flinger.media_panel_bg_blur=1" >> build/portrom/images/my_product/build.prop
-
-# High Brightness Mode (Manual HBM) switch
 add_feature_v2 oplus_feature "oplus.software.display.manual_hbm.support"
 add_prop_v2 "ro.oplus.display.sell_mode.max_normal_nit" "800"
-
-add_feature "android.hardware.biometrics.face"  build/portrom/images/my_product/etc/permissions/android.hardware.fingerprint.xml
-
-
+add_feature "android.hardware.biometrics.face" build/portrom/images/my_product/etc/permissions/android.hardware.fingerprint.xml
 add_feature_v2 oplus_feature "oplus.software.display.smart_color_temperature_rhythm_health_support"
-
-# Audio Enhancements (Voice isolation / Noise reduction)
 add_feature "oplus.hardware.audio.voice_isolation_support" build/portrom/images/my_product/etc/permissions/oplus.product.feature_multimedia_unique.xml
 add_feature "oplus.hardware.audio.voice_denoise_support" build/portrom/images/my_product/etc/permissions/oplus.product.feature_multimedia_unique.xml
-
-# Bypass Charging
 sed -i '/<\/extend_features>/i\
     <app_feature name="com.oplus.plc_charge.support">\
         <StringList args="true"/>\
     </app_feature>' build/portrom/images/my_product/etc/extension/com.oplus.app-features-ext-bruce.xml
 add_feature_v2 app_feature "com.android.settings.device_rm^Realme Device"
-add_feature_v2  app_feature "com.oplus.fullscene_plc_charge.support^Fullscreen Bypass Charging^args=\"boolean:true\""
-# Alert Slider (Three-stage)
-if grep -q "oplus.software.audio.alert_slider"  build/portrom/images/my_product/etc/permissions/* ;then
+add_feature_v2 app_feature "com.oplus.fullscene_plc_charge.support^Fullscreen Bypass Charging^args=\"boolean:true\""
+if grep -q "oplus.software.audio.alert_slider" build/portrom/images/my_product/etc/permissions/* ;then
     add_feature "oplus.software.audio.alert_slider" build/portrom/images/my_product/etc/permissions/oplus.product.feature_multimedia_unique.xml
 fi
-
-remove_feature "oplus.software.display.wcg_2.0_support" # Avoid soft reboot on screen color mode switch
+remove_feature "oplus.software.display.wcg_2.0_support"
 remove_feature "oplus.software.display.origin_roundcorner_support"
 remove_feature "oplus.software.vibration_ring_mute"
-remove_feature  "oplus.software.vibration_alarm_clock"
-remove_feature  "oplus.software.vibration_ringtone"
-remove_feature  "oplus.software.vibration_threestage_key"
+remove_feature "oplus.software.vibration_alarm_clock"
+remove_feature "oplus.software.vibration_threestage_key"
 remove_feature "oppo.common.support.curved.display"
 remove_feature "oplus.feature.largescreen"
 remove_feature "oplus.feature.largescreen.land"
@@ -1853,11 +2060,8 @@ remove_feature "oplus.software.palmprint_v1"
 remove_feature "oplus.software.palmprint"
 remove_feature "com.android.settings.processor_detail_gen2"
 remove_feature "com.android.settings.processor_detail"
-#remove_feature "os.charge.settings.batterysettings.batteryhealth"
-remove_feature "oplus.software.display.adfr_v32_hp"  # OOS: Disabled because Xiao-Bu Memory crashes
-
+remove_feature "oplus.software.display.adfr_v32_hp"
 remove_feature "com.oplus.battery.phoneusage.screenon.hide"
-
 EUICC_GOOGLE=$(find build/portrom/images/ -name "EuiccGoogle" -type d )
 if [[ -d $EUICC_GOOGLE ]];then
     rm -rfv $EUICC_GOOGLE
@@ -1866,14 +2070,9 @@ if [[ -d $EUICC_GOOGLE ]];then
     remove_feature "oplus.software.radio.esim_support"
     remove_feature "com.android.systemui.keyguard_support_esimcard"
 fi
-
-cp -rf  build/baserom/images/my_product/vendor/etc/* build/portrom/images/my_product/vendor/etc/
-
- # Camera
- if [[ $base_android_version -lt 33 ]];then
-    cp -rf  build/baserom/images/my_product/etc/camera/* build/portrom/images/my_product/etc/camera
-
-    # A16+ ports (Camera 6.x) should keep portrom's OplusCamera; do not replace with OnePlusCamera from baserom.
+cp -rf build/baserom/images/my_product/vendor/etc/* build/portrom/images/my_product/vendor/etc/
+if [[ $base_android_version -lt 33 ]];then
+    cp -rf build/baserom/images/my_product/etc/camera/* build/portrom/images/my_product/etc/camera
     old_camera_app=$(find build/baserom/images/my_product -type f -name "OnePlusCamera.apk")
     if [[ $port_android_version -lt 16 ]] && [[ -f $old_camera_app ]];then
         cp -rfv $(dirname "$old_camera_app")* build/portrom/images/my_product/priv-app/
@@ -1881,7 +2080,7 @@ cp -rf  build/baserom/images/my_product/vendor/etc/* build/portrom/images/my_pro
             mkdir -p build/portrom/images/my_product/priv-app/etc/permissions/
         fi
         rm -rf build/portrom/images/my_product/product_overlay/framework/*
-        cp -rf build/baserom/images/my_product/product_overlay/* build/portrom/images/my_product/product_overlay/
+        cp -rf build/baserom/images/my_product/product_overlay/* build/portrom/images/my_product/product_overlay
     #    find build/portrom/images/ -type f -name "*.prop" -exec  sed -i "s/ro.product.model=.*/ro.product.model=${base_market_name}/g" {} \;
     #   find build/portrom/images/ -type f -name "*.prop" -exec  grep "ro.product.model" {} \;
         cp -rfv  build/baserom/images/my_product/priv-app/etc/permissions/* build/portrom/images/my_product/priv-app/etc/permissions/
@@ -2081,7 +2280,8 @@ else
     if [[ -d "$sourceAONService" ]];then
         targetAONService=$(find build/portrom/images/my_product -type d -name "AONService")
         if [[ -d "$targetAONService" ]];then
-            rm -rfv $targetAONService/* cp -rfv $sourceAONService/* $targetAONService/
+            rm -rfv "$targetAONService"/*
+            cp -rfv "$sourceAONService"/* "$targetAONService"/
         else
             cp -rfv $sourceAONService build/portrom/images/my_product/app/
         fi
@@ -2790,8 +2990,6 @@ if [[ "$pack_method" == "stock" ]];then
                 part="bluetooth"
             elif [[ ${fwimg} == "cdt_engineering" ]];then
                 part="engineering_cdt"
-            elif [[ ${fwimg} == "BTFM" ]];then
-                part="bluetooth"
             elif [[ ${fwimg} == "dspso" ]];then
                 part="dsp"
             elif [[ ${fwimg} == "keymaster64" ]];then
@@ -2805,7 +3003,7 @@ if [[ "$pack_method" == "stock" ]];then
             fi
 
             sed -i "/REM firmware/a \\\bin\\\windows\\\fastboot.exe flash "${part}" firmware-update\/"${fwimg}".img" out/${os_type}_${rom_version}/windows_flash_script.bat
-            sed -i "/# firmware/a fasatboot flash "${part}" firmware-update\/"${fwimg}".img" out/${os_type}_${rom_version}/mac_linux_flash_script.sh
+            sed -i "/# firmware/a fastboot flash "${part}" firmware-update\/"${fwimg}".img" out/${os_type}_${rom_version}/mac_linux_flash_script.sh
         done
         sed -i "/_b/d" out/${os_type}_${rom_version}/META-INF/com/google/android/update-binary
         sed -i "s/_a//g" out/${os_type}_${rom_version}/META-INF/com/google/android/update-binary
