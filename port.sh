@@ -14,7 +14,7 @@ trap 'echo "[ERROR] Script died at line $LINENO — command: $BASH_COMMAND" >&2'
 
 
 build_user="Ozyern"
-build_host="@revork"
+build_host=$(hostname)"@ReVork"
 baserom="${1:-}"
 portrom="${2:-}"
 portrom2="${3:-}"
@@ -3100,7 +3100,7 @@ if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
         cp -rf $targetSettings tmp/$(basename $targetSettings).bak
         java -jar bin/apktool/APKEditor.jar d -f -i $targetSettings -o tmp/Settings $extra_args
         targetSmali=$(find tmp -type f -name "DeviceChargeInfoController.smali")
-        python3 bin/patchmethod_v2.py $targetSmali isPreferenceSupport
+        python3 bin/patchmethod_v2.py "$targetSmali" isPreferenceSupport -return true
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o $targetSettings $extra_args
     fi
 fi
@@ -3110,7 +3110,7 @@ blue "Enabling RAM display"
 cp -rf $targetOplusLauncher tmp/$(basename $targetOplusLauncher).bak
 java -jar bin/apktool/APKEditor.jar d -f -i $targetOplusLauncher -o tmp/OplusLauncher $extra_args
 targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
- python3 bin/patchmethod_v2.py $targetSmali getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
+ python3 bin/patchmethod_v2.py "$targetSmali" getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
  java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o $targetOplusLauncher $extra_args
 fi
 targetSystemUI=$(find build/portrom/images/ -name "SystemUI.apk")
@@ -3134,8 +3134,8 @@ elif [[ -f "$targetSystemUI" ]]; then
     fi
     if [[ $regionmark != "CN" ]];then
         blue "Enabling My Device"
-        targetSmali=$(find tmp -type f -name "FeatureOption.smali")
-        python3 bin/patchmethod_v2.py $targetSmali isSupportMyDevice
+        targetSmali=$(find tmp/SystemUI -type f -path "*/systemui/common/feature/FeatureOption.smali")
+        python3 bin/patchmethod_v2.py "$targetSmali" isSupportMyDevice -return true
     fi
     blue "Applying CTS patch (isCtsTest)"
     python3 bin/patchmethod_v2.py -d tmp/SystemUI -n isCtsTest -return false
@@ -3152,8 +3152,8 @@ cp -rf $targetAOD tmp/$(basename $targetAOD).bak
 java -jar bin/apktool/APKEditor.jar d -f -i $targetAOD -o tmp/Aod $extra_args
 targetCommonUtilsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/CommonUtils.smali")
     targetSettingsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/SettingsUtils.smali")
-    python3 bin/patchmethod_v2.py $targetCommonUtilsSmali isSupportFullAod -return true
-    python3 bin/patchmethod_v2.py $targetSettingsSmali getKeyAodAllDaySupportSettings -return true
+    python3 bin/patchmethod_v2.py "$targetCommonUtilsSmali" isSupportFullAod -return true
+    python3 bin/patchmethod_v2.py "$targetSettingsSmali" getKeyAodAllDaySupportSettings -return true
     java -jar bin/apktool/APKEditor.jar b -f -i tmp/Aod -o $targetAOD $extra_args
 fi
 yellow "Deleting unnecessary apps" "Debloating..."
