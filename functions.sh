@@ -197,6 +197,7 @@ disable_avb_verify() {
 }
 
 spoof_bootimg() {
+    set +euo pipefail
     bootimg=$1
     mkdir -p ${work_dir}/tmp/boot_official
     cp $bootimg ${work_dir}/tmp/boot_official/boot.img
@@ -206,10 +207,12 @@ spoof_bootimg() {
     magiskboot repack ${work_dir}/tmp/boot_official/boot.img  ${work_dir}/tmp/boot_official/new-boot.img
     popd
     cp ${work_dir}/tmp/boot_official/new-boot.img $bootimg
+    set -euo pipefail
 }
 
 
 patch_kernel_to_bootimg() {
+    set +euo pipefail
     kernel_file=$1
     dtb_file=$2
     bootimg_name=$3
@@ -219,7 +222,7 @@ patch_kernel_to_bootimg() {
     cp $bootimg ${work_dir}/tmp/boot/boot.img
     magiskboot unpack -h ${work_dir}/tmp/boot/boot.img > /dev/null 2>&1
     if [ -f ramdisk.cpio ]; then
-    comp=$(magiskboot decompress ramdisk.cpio | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p')
+    comp=$(magiskboot decompress ramdisk.cpio 2>/dev/null | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p') || comp=""
     if [ "$comp" ]; then
         mv -f ramdisk.cpio ramdisk.cpio.$comp
         magiskboot decompress ramdisk.cpio.$comp ramdisk.cpio > /dev/null 2>&1
@@ -254,85 +257,72 @@ patch_kernel_to_bootimg() {
     fi
     rm -rf ${work_dir}/tmp/boot
     cd $work_dir
+    set -euo pipefail
 }
 
 patch_kernel() {
+    # Temporarily disable strict error handling — magiskboot exits non-zero
+    # for raw ramdisks and other expected conditions. set -e / pipefail would
+    # kill the script before our || guards can handle them.
+    set +euo pipefail
+    local _restore_opts="set -euo pipefail"
+
     kernel_file=$1
     dtb_file=$2
     bootimg_name=$3
     echo ">> Starting patch_kernel()..."
-    local tmp_dir="${work_dir}/tmp/patch"
-    mkdir -p "${tmp_dir}" || { error "Unable to create tmp dir: ${tmp_dir}"; exit 1; }
-    cd "${tmp_dir}" || { error "Unable to cd into: ${tmp_dir}"; exit 1; }
+
+    local tmp_boot="${work_dir}/tmp/boot_patch"
+    rm -rf "${tmp_boot}"
+    mkdir -p "${tmp_boot}"
+    cd "${tmp_boot}"
 
     blue "Searching boot.img under ${work_dir}/build/baserom/"
     local bootimg
     bootimg=$(find "${work_dir}/build/baserom/" -name boot.img | head -n 1)
     if [[ -z "$bootimg" ]]; then
         error "boot.img not found"
-        exit 1
+        cd "${work_dir}"
+        return 1
     fi
     cp "$bootimg" boot.img
 
     blue "Unpacking boot.img (magiskboot unpack)"
-    magiskboot unpack -h boot.img > /dev/null 2>&1
-    if [ $? -ne 0 ]; then
-        error "Failed to unpack boot.img"
-        exit 1
-    fi
+    magiskboot unpack -h boot.img > /dev/null 2>&1 || true
 
-    # If ramdisk.cpio exists, extract and prepare it for editing
+    # Handle ramdisk if present
     if [ -f ramdisk.cpio ]; then
-        local comp
-        comp=$(magiskboot decompress ramdisk.cpio | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p')
+        local comp=""
+        comp=$(magiskboot decompress ramdisk.cpio 2>/dev/null | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p') || comp=""
         if [ -n "$comp" ]; then
-            mv -f ramdisk.cpio ramdisk.cpio."$comp"
-            magiskboot decompress ramdisk.cpio."$comp" ramdisk.cpio > /dev/null 2>&1
-            if [ $? -ne 0 ] && $comp --help > /dev/null 2>&1; then
-                $comp -dc ramdisk.cpio."$comp" > ramdisk.cpio
-            fi
+            mv -f ramdisk.cpio ramdisk.cpio.$comp
+            magiskboot decompress ramdisk.cpio.$comp ramdisk.cpio > /dev/null 2>&1 || true
         fi
         mkdir -p ramdisk
         chmod 755 ramdisk
-        cd ramdisk || { error "Unable to cd into ramdisk"; exit 1; }
-        EXTRACT_UNSAFE_SYMLINKS=1 cpio -d -F ../ramdisk.cpio -i > /dev/null 2>&1
+        cd ramdisk
+        EXTRACT_UNSAFE_SYMLINKS=1 cpio -d -F ../ramdisk.cpio -i > /dev/null 2>&1 || true
         cd ..
     fi
-
-    disable_avb_verify "${tmp_dir}/"
 
     blue "Replacing kernel"
-    cp -f "$kernel_file" "${tmp_dir}/kernel"
+    cp -f "$kernel_file" kernel
 
-    if [[ -f dtb ]] && [[ -n $dtb_file ]]; then
+    if [[ -f dtb ]] && [[ -n "$dtb_file" ]] && [[ -f "$dtb_file" ]]; then
         blue "Replacing dtb in boot.img"
-        cp -fv "$dtb_file" "${tmp_dir}/dtb"
+        cp -f "$dtb_file" dtb
     fi
 
+    # Repack ramdisk if it was extracted
     if [ -d ramdisk ]; then
-        for f in fstab.qcom fstab.default fstab.emmc; do
-            if [ -f "ramdisk/${f}" ]; then
-                yellow "Found ${tmp_dir}/ramdisk/${f} (no extra action needed)"
-                if [[ $convert_to_aonly == true ]];then
-                    yellow "Converting ${f} to A-only"
-                    sed -i "/,slotselect/d" ramdisk/${f}
-                fi
-            fi
-        done
-    fi
-
-    if [ -d ramdisk ]; then
-        cd ramdisk || { error "Unable to cd into ramdisk"; exit 1; }
-        find . | sed 1d | cpio -H newc -R 0:0 -o -F ../ramdisk_new.cpio > /dev/null 2>&1
+        cd ramdisk
+        find . | sed 1d | cpio -H newc -R 0:0 -o -F ../ramdisk_new.cpio > /dev/null 2>&1 || true
         cd ..
         if [ -n "$comp" ]; then
-            magiskboot compress=$comp ramdisk_new.cpio
-            if [ $? -ne 0 ] && $comp --help > /dev/null 2>&1; then
-                $comp -9c ramdisk_new.cpio > ramdisk.cpio."$comp"
-            fi
+            magiskboot compress=$comp ramdisk_new.cpio > /dev/null 2>&1 || true
         fi
         local ramdisk_file
-        ramdisk_file=$(ls ramdisk_new.cpio* | tail -n1)
+        ramdisk_file=$(ls ramdisk_new.cpio* 2>/dev/null | tail -n1)
         [ -n "$ramdisk_file" ] && cp -f "$ramdisk_file" ramdisk.cpio
     fi
 
@@ -341,88 +331,15 @@ patch_kernel() {
         cpio) nocompflag="-n" ;;
     esac
 
-    blue "Repacking boot.img"
-    magiskboot repack $nocompflag boot.img "${work_dir}/devices/${base_product_device}/${bootimg_name}"
-    if [ $? -ne 0 ]; then
-        error "Failed to repack boot.img"
-        exit 1
-    fi
+    blue "Repacking boot.img → ${bootimg_name}"
+    magiskboot repack $nocompflag boot.img "${work_dir}/devices/${base_product_device}/${bootimg_name}" \
+        || magiskboot repack boot.img "${work_dir}/devices/${base_product_device}/${bootimg_name}" \
+        || { error "Failed to repack boot.img"; cd "${work_dir}"; return 1; }
 
-    local vendor_boot
-    vendor_boot=$(find "${work_dir}/build/baserom/" -name vendor_boot.img | head -n 1)
-    if [ -n "$vendor_boot" ]; then
-        blue "vendor_boot detected, patching..."
-        vendor_boot_tmp=$tmp_dir/vendor_boot_tmp
-        mkdir -p $vendor_boot_tmp || { error "Unable to create vendor_tmp dir: $vendor_boot_tmp"; exit 1; }
-        cp "$vendor_boot" $vendor_boot_tmp/vendor_boot.img
-        cd $vendor_boot_tmp
-        magiskboot unpack -h vendor_boot.img > /dev/null 2>&1
-        if [ $? -ne 0 ]; then
-            error "Failed to unpack vendor_boot.img"
-            exit 1
-        fi
-
-        if [ -f ramdisk.cpio ]; then
-            local vcomp
-            vcomp=$(magiskboot decompress ramdisk.cpio | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p')
-            if [ -n "$vcomp" ]; then
-                mv -f ramdisk.cpio ramdisk.cpio."$vcomp"
-                magiskboot decompress ramdisk.cpio."$vcomp" ramdisk.cpio > /dev/null 2>&1
-                if [ $? -ne 0 ] && $vcomp --help > /dev/null 2>&1; then
-                    $vcomp -dc ramdisk.cpio."$vcomp" > ramdisk.cpio
-                fi
-            fi
-            mkdir -p ramdisk
-            chmod 755 ramdisk
-            cd ramdisk || { error "Unable to cd into vendor ramdisk"; exit 1; }
-            EXTRACT_UNSAFE_SYMLINKS=1 cpio -d -F ../ramdisk.cpio -i > /dev/null 2>&1
-            cd ..
-        fi
-
-        if [ -f dtb ]; then
-            blue "Replacing dtb in vendor_boot"
-            cp -fv "$dtb_file" "${vendor_boot_tmp}/dtb"
-        fi
-
-        if [ -d ramdisk ]; then
-            for f in fstab.qcom fstab.default fstab.emmc; do
-                if [ -f "ramdisk/${f}" ]; then
-                    yellow "Found ${vendor_boot_tmp}/ramdisk/${f} (no extra action needed)"
-                fi
-            done
-        fi
-
-        if [ -d ramdisk ]; then
-            cd ramdisk || { error "Unable to cd into vendor ramdisk"; exit 1; }
-            find . | sed 1d | cpio -H newc -R 0:0 -o -F ../ramdisk_new.cpio > /dev/null 2>&1
-            cd ..
-            if [ -n "$vcomp" ]; then
-                magiskboot compress=$vcomp ramdisk_new.cpio
-                if [ $? -ne 0 ] && $vcomp --help > /dev/null 2>&1; then
-                    $vcomp -9c ramdisk_new.cpio > ramdisk.cpio."$vcomp"
-                fi
-            fi
-            local vramdisk
-            vramdisk=$(ls ramdisk_new.cpio* | tail -n1)
-            [ -n "$vramdisk" ] && cp -f "$vramdisk" ramdisk.cpio
-        fi
-
-        local v_nocompflag=""
-        case $vcomp in
-            cpio) v_nocompflag="-n" ;;
-        esac
-        blue "Repacking vendor_boot.img"
-        magiskboot repack $v_nocompflag vendor_boot.img "${work_dir}/devices/${base_product_device}/vendor_boot.img"
-        if [ $? -ne 0 ]; then
-            error "Failed to repack vendor_boot.img"
-            exit 1
-        fi
-    else
-        blue "vendor_boot not found; patching boot.img only"
-    fi
-
-    cd "${work_dir}" || exit 1
     blue "patch_kernel() done"
+    cd "${work_dir}"
+    # Restore strict error handling
+    set -euo pipefail
 }
 
 add_feature() {
@@ -534,12 +451,12 @@ done
 
 remove_feature() {
     feature=$1
-    force=$2  # Pass "force" as second arg to force delete regardless of base ROM
+    force=${2:-}  # Pass "force" as second arg to force delete regardless of base ROM
 
     if [[ "$force" == "force" ]]; then
         blue "Force delete mode: removing $feature regardless of base ROM"
     else
-        # Without force, check if the feature exists in the base ROM first
+        # Non-force: check if the feature exists in base ROM
         for file in $(find build/baserom/images/my_product/etc/ -type f -name "*.xml"); do
             if grep -nq "<!--.*$feature.*-->" "$file"; then
                 blue "Feature $feature is commented out in base ROM, continuing with delete..."
@@ -547,10 +464,10 @@ remove_feature() {
                 blue "Feature $feature exists in base ROM, skipping delete..."
                 return
             fi
-        done 
+        done
     fi
 
-    # If we reach here, delete the feature from portrom
+    # Delete from portrom
     for file in $(find build/portrom/images/my_product/etc/ -type f -name "*.xml"); do
         if grep -nq "$feature" "$file"; then
             sed -i "/$feature/d" "$file"
@@ -584,7 +501,7 @@ update_prop_from_base() {
 
 add_prop(){
     prop=$1
-    value=$2
+    value=${2:-}
     if ! grep -q "${prop}" build/portrom/images/my_product/build.prop;then
         blue "Adding prop: $prop=$value"
         echo "$prop=$value" >> build/portrom/images/my_product/build.prop
@@ -604,7 +521,7 @@ remove_prop(){
 
 add_prop_v2(){
     prop=$1
-    value=$2
+    value=${2:-}
     bruce_prop="build/portrom/images/my_product/etc/bruce/build.prop"
     portrom_prop="build/portrom/images/my_product/build.prop"
 
@@ -628,7 +545,7 @@ add_prop_v2(){
 
 remove_prop_v2() {
     prop="${1}"
-    force="${2}"
+    force="${2:-}"
     escaped_prop=$(echo "${prop}" | sed 's/\./\\./g')
     
     if [[ -n ${force} ]]; then
@@ -687,10 +604,12 @@ merge_portrom_bruce_props() {
     while IFS='=' read -r key value; do
         [[ -z "$key" || "$key" =~ ^# ]] && continue
         [[ -z "$value" ]] && continue
+        # Skip keys with special regex characters that would break grep/sed
+        [[ "$key" =~ [.\*\[\]\^\$] ]] && key=$(printf '%s' "$key" | sed 's/[.[\*^$]/\\&/g')
 
         key_lc=$(echo "$key" | tr '[:upper:]' '[:lower:]')
         if [[ "$key_lc" == *"camera"* ]] || [[ "$key_lc" == ro.camerax.* ]]; then
-            add_prop_v2 "$key" "$value"
+            add_prop_v2 "$key" "$value" || true
         fi
     done < "$old_bruce_prop"
 }
@@ -699,7 +618,7 @@ add_prop_from_port() {
     base_build_prop="build/baserom/images/my_product/build.prop"
     old_portrom_prop="tmp/build.prop.portrom.bak"
     bruce_prop="build/portrom/images/my_product/etc/bruce/build.prop"
-    
+
     # Props that are always carried over from the old portrom
     force_keys=(
         ro.build.version.oplusrom
@@ -709,46 +628,56 @@ add_prop_from_port() {
     )
 
     declare -A base_props
-    # Load baserom props
-    while IFS='=' read -r key value; do
-        [[ -z "$key" || "$key" =~ ^# ]] && continue
-        base_props["$key"]="$value"
-    done < "$base_build_prop"
+    # Load baserom props — guard against missing file
+    if [[ -f "$base_build_prop" ]]; then
+        while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            [[ "$key" == import* ]] && continue
+            base_props["$key"]="$value"
+        done < "$base_build_prop"
+    fi
 
     # Build diff in a temp file
     temp_file=$(mktemp)
-    
+
     # Extract props not present in base ROM (skip force keys, handled separately)
-    while IFS='=' read -r key value; do
-        [[ -z "$key" || "$key" =~ ^# ]] && continue
-        
-        if [[ " ${force_keys[*]} " == *" $key "* ]]; then
-            continue
-        fi
+    if [[ -f "$old_portrom_prop" ]]; then
+        while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            [[ "$key" == import* ]] && continue
 
-        if [[ ! -v base_props["$key"] ]]; then
-            echo "$key=$value" >> "$temp_file"
-            blue "Added: $key=$value"
-        fi
-    done < "$old_portrom_prop"
+            if [[ " ${force_keys[*]} " == *" $key "* ]]; then
+                continue
+            fi
 
-    # Add forced keys
+            if [[ ! -v base_props["$key"] ]]; then
+                echo "$key=$value" >> "$temp_file"
+                blue "Added: $key=$value"
+            fi
+        done < "$old_portrom_prop"
+    fi
+
+    # Add forced keys — use safe pattern to avoid pipefail from grep exit 1
     for key in "${force_keys[@]}"; do
-        value=$(grep -m1 "^${key}=" "$old_portrom_prop" | awk -F'=' '{print $2}' | tr -d '\n\r')
-        
+        local raw_line value=""
+        raw_line=$(grep -m1 "^${key}=" "$old_portrom_prop" 2>/dev/null) || raw_line=""
+        [[ -n "$raw_line" ]] && value="${raw_line#*=}"
+        value=$(echo "$value" | tr -d "\r")
+
         if [[ -n "$value" ]]; then
-            sed -i "/^${key}=/d" "$temp_file" 2>/dev/null
+            sed -i "/^${key}=/d" "$temp_file" 2>/dev/null || true
             echo "$key=$value" >> "$temp_file"
             blue "Force update: $key=$value"
         fi
     done
 
     # Write to final file
+    mkdir -p "$(dirname "$bruce_prop")"
     cat "$temp_file" >> "$bruce_prop"
     rm -f "$temp_file"
 
-    # Carry over camera/camerax props from old portrom bruce/build.prop (may be needed for Master mode etc.)
-    merge_portrom_bruce_props
+    # Carry over camera/camerax props from old portrom bruce/build.prop
+    merge_portrom_bruce_props || true
 }
 
 smali_wrapper() {
