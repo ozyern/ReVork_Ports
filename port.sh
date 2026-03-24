@@ -4349,13 +4349,64 @@ find build/portrom/images/config -type f -name "*file_contexts" \
 	    -exec perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
 #find build/portrom/images/config -type f -name "*file_contexts" -exec sed -i -E '/[\x{4e00}-\x{9fa5}]/d' {} \;
 
-# bootanimation
-if [[ $baseIsOOS == "true" && $portIsOOS == "true" ]]; then
-    rm -rf build/portrom/images/my_product/media/bootanimation
-    cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
-elif [[ $baseIsColorOSCN == "true" && ( $portIsColorOSGlobal == "true" || $portIsColorOS == "true" ) ]]; then
-    rm -rf build/portrom/images/my_product/media/bootanimation
-    cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
+# ==================================================
+# Bootanimation
+# ==================================================
+
+portanim_path="build/portrom/images/my_product/media/bootanimation"
+
+if [[ "$mix_port" == true && -n "${version_name2}" ]]; then
+
+    p2_anim=""
+
+    for path in \
+        "build/${version_name2}/my_product/media/bootanimation" \
+        "build/${version_name2}/product/media/bootanimation"
+    do
+        if [[ -e "$path" ]]; then
+            p2_anim="$path"
+            break
+        fi
+    done
+
+    if [[ -n "$p2_anim" ]]; then
+        blue "Mixed port: using bootanimation from portrom2 (${version_name2})"
+
+        rm -rf "$portanim_path"
+        mkdir -p "$(dirname "$portanim_path")"
+        cp -rf "$p2_anim" "$portanim_path"
+
+    else
+        yellow "Mixed port: portrom2 has no bootanimation, keeping portrom's"
+    fi
+
+else
+
+    portanim_src=""
+
+    for path in \
+        "build/portrom/images/my_product/media/bootanimation" \
+        "build/portrom/images/product/media/bootanimation"
+    do
+        if [[ -e "$path" ]]; then
+            portanim_src="$path"
+            break
+        fi
+    done
+
+    if [[ -z "$portanim_src" ]]; then
+        yellow "portrom has no bootanimation, falling back to baserom"
+
+        if [[ -d "build/baserom/images/my_product/media/bootanimation" ]]; then
+            rm -rf "$portanim_path"
+            mkdir -p "$(dirname "$portanim_path")"
+            cp -rf build/baserom/images/my_product/media/bootanimation "$portanim_path"
+        else
+            red "No bootanimation found in baserom either"
+        fi
+    else
+        green "Using portrom bootanimation"
+    fi
 fi
 
 # ── Custom boot animation (ColorOS CN ports only) — Rapchick Engine (@revork)
@@ -4978,4 +5029,666 @@ PERMEOF
         done
 
         # ro.voice.interaction.service
-        if [[ "${gemini_pkg}" == "com.google.android.apps.bard" 
+        if [[ "${gemini_pkg}" == "com.google.android.apps.bard" ]]; then
+            voice_svc="${gemini_pkg}/com.google.android.apps.bard.shared.voiceinteraction.BardVoiceInteractionService"
+        else
+            voice_svc="${gemini_pkg}/com.google.android.voiceinteraction.GsaVoiceInteractionService"
+        fi
+        for prop_file in             "build/portrom/images/system/system/build.prop"             "build/portrom/images/my_product/build.prop"
+        do
+            [[ -f "${prop_file}" ]] &&                 set_prop "${prop_file}" "ro.voice.interaction.service=${voice_svc}"
+        done
+        green "  [Gemini] default assistant configured"
+
+        # ── 11. Remove Breeno / HeyTap assistant fully ────────────────────────
+        blue "  [GApps] Removing Breeno/HeyTap assistant..."
+        breeno_apk_dirs=(
+            "HeyTapSpeechAssist" "BreenoPlatform" "BreenoSpeech"
+            "BreenoAssistant"    "VoiceAssistant" "SpeechAssist"
+            "OPlusAIAssistant"   "AIAssistant"
+        )
+        for adir in "${breeno_apk_dirs[@]}"; do
+            while IFS= read -r found; do
+                yellow "  [GApps] Removing ${found}"
+                rm -rf "${found}"
+            done < <(find build/portrom/images/ -type d -name "${adir}" 2>/dev/null)
+        done
+        rm -rf build/portrom/images/my_product/etc/breenospeech2
+        for sysconfig_root in             "build/portrom/images/my_product/etc/sysconfig"             "build/portrom/images/system/system/etc/sysconfig"
+        do
+            while IFS= read -r xmlfile; do
+                grep -qiE "heytap|breeno|speechassist" "${xmlfile}" 2>/dev/null &&                     sed -i '/heytap\|breeno\|speechassist\|HeyTapSpeech/Id' "${xmlfile}"
+            done < <(find "${sysconfig_root}" -name "*.xml" -type f 2>/dev/null)
+        done
+        for feat_dir in             "build/portrom/images/my_product/etc/extension"             "build/portrom/images/my_product/etc/permissions"
+        do
+            while IFS= read -r xmlfile; do
+                grep -qiE "breeno|speechassist|heytap.speech" "${xmlfile}" 2>/dev/null &&                     sed -i '/breeno\|speechassist\|heytap\.speech/Id' "${xmlfile}"
+            done < <(find "${feat_dir}" -name "*.xml" -type f 2>/dev/null)
+        done
+        for prop_file in             "build/portrom/images/system/system/build.prop"             "build/portrom/images/my_product/build.prop"             "build/portrom/images/my_product/etc/bruce/build.prop"
+        do
+            [[ -f "${prop_file}" ]] &&                 sed -i '/heytap\|breeno\|speechassist\|ro\.breeno\|persist\.heytap/Id'                     "${prop_file}"
+        done
+        green "  [GApps] Breeno removed — Gemini is sole assistant"
+
+        green "Google services injection complete — Rapchick Engine (@revork)"
+    fi
+fi
+
+if [[ -f devices/common/GoogleCtS_cos-16.zip ]] && [[ "$port_android_version" == "16" ]]; then
+    unzip -o devices/common/GoogleCtS_cos-16.zip -d build/portrom/images/
+fi
+
+
+# Custom Replacements
+
+
+# `devices/<device_code>/overlay` follows image directory structure; can be directly swapped
+
+if [[ -d "devices/common/overlay" ]]; then
+    cp -rfv  devices/common/overlay/* build/portrom/images/
+fi
+
+if [[ -d "devices/${base_product_device}/overlay" ]]; then
+    cp -rfv  devices/${base_product_device}/overlay/* build/portrom/images/
+else
+    yellow "devices/${base_product_device}/overlay not found" "devices/${base_product_device}/overlay not found" 
+fi
+
+if [[ -f "devices/${base_product_device}/odm_selinux_fix_a16.zip" ]] && [[ "$port_android_version" == 16 ]]; then
+    unzip -o "devices/${base_product_device}/odm_selinux_fix_a16.zip" -d "${work_dir}/build/portrom/images/"
+fi
+
+###############################################################################
+# Custom Kernel Integration (AnyKernel zip)
+#
+# Searches for AnyKernel (containing anykernel.sh) in `devices/${base_product_device}/*.zip`,
+# extracts Image/dtb/dtbo.img, and reconstructs boot.img.
+# - Branches based on naming like `*-KSU` / `*-NoKSU` to change save location.
+# - Generated boot_*.img / dtbo_*.img are bundled into the final flash package.
+###############################################################################
+while IFS= read -r -d '' zip; do
+    if unzip -l "$zip" | grep -q "anykernel.sh" ;then
+        blue "Custom kernel zip detected: $zip [AnyKernel format]" "Custom Kernel zip $zip detected [Anykernel]"
+        
+        # Create unique temp directory per zip
+        zip_name=$(basename "$zip")
+        temp_ak_dir="tmp/anykernel_${zip_name%.*}"
+        rm -rf "$temp_ak_dir"
+        mkdir -p "$temp_ak_dir"
+        
+        unzip -q "$zip" -d "$temp_ak_dir" > /dev/null 2>&1
+        
+        # Search for kernel image (Image or Image.gz)
+        kernel_file=$(find "$temp_ak_dir" -name "Image" -print -quit)
+        if [[ -z "$kernel_file" ]]; then 
+             kernel_file=$(find "$temp_ak_dir" -name "Image.gz" -print -quit)
+        fi
+        
+        # Convert file paths to absolute
+        [[ -n "$kernel_file" ]] && kernel_file=$(readlink -f "$kernel_file")
+
+        dtb_file=$(find "$temp_ak_dir" -name "dtb" -print -quit)
+        [[ -n "$dtb_file" ]] && dtb_file=$(readlink -f "$dtb_file")
+
+        dtbo_img=$(find "$temp_ak_dir" -name "dtbo.img" -print -quit)
+        [[ -n "$dtbo_img" ]] && dtbo_img=$(readlink -f "$dtbo_img")
+
+        if [[ -n "$kernel_file" ]]; then
+            blue "Integrating custom kernel into boot.img: $zip_name" "Integrating custom kernel into boot.img: $zip_name"
+            
+            # Determine target based on filename
+            if echo "$zip_name" | grep -qi "KSU" && ! echo "$zip_name" | grep -qi "NoKSU"; then
+                 target_boot="boot_ksu.img"
+                 target_dtbo="dtbo_ksu.img"
+            elif echo "$zip_name" | grep -qi "NoKSU"; then
+                 target_boot="boot_noksu.img"
+                 target_dtbo="dtbo_noksu.img"
+            else
+                 target_boot="boot_custom.img"
+                 target_dtbo="dtbo_custom.img"
+            fi
+            
+            # Copy dtbo.img if it exists
+            if [[ -n "$dtbo_img" ]]; then
+                cp -fv "$dtbo_img" "${work_dir}/devices/${base_product_device}/${target_dtbo}"
+            fi
+            
+            # Run kernel patch
+            patch_kernel "$kernel_file" "$dtb_file" "$target_boot"
+            blue "${target_boot} generated" "New ${target_boot} generated"
+            
+        else
+            yellow "Kernel image (Image/Image.gz) not found: $zip" "Kernel image not found in $zip"
+        fi
+        
+        # Delete temp directory
+        rm -rf "$temp_ak_dir"
+    fi
+done < <(find "devices/${base_product_device}/" -name "*.zip" -print0)
+
+
+# KernelSU init_boot Patch (ksud)
+#
+# Estimates kernel series (e.g., 6.1 / 6.6 / 6.12) from ROM side `ro.build.kernel.id`,
+# selects corresponding KMI name (android14-6.1 etc.), and runs `ksud boot-patch`.
+# Skips if no match is found for safety.
+# kernel_id must be initialized to avoid set -u firing when the prop is absent
+kernel_id=""
+kernel_prop=""
+while IFS= read -r prop; do
+    val=$(grep -E '^ro.build.kernel.id=' "$prop" 2>/dev/null | cut -d= -f2 || true)
+    if [ -n "$val" ]; then
+        kernel_id="$val"
+        kernel_prop="$prop"
+        break
+    fi
+done < <(find "$work_dir/build/portrom/images" -type f -name "build.prop")
+
+kernel_major=$(echo "${kernel_id:-}" | grep -Eo '^[0-9]+\.[0-9]+' || true)
+
+kmi=""
+case "$kernel_major" in
+    6.1)  kmi="android14-6.1" ;;
+    6.6)  kmi="android15-6.6" ;;
+    6.12) kmi="android16-6.12" ;;
+esac
+
+if [ -z "$kmi" ]; then
+    echo "⚠ KMI mismatch (ro.build.kernel.id=$kernel_id). Skipping init_boot patch via ksud"
+else
+    echo "✔ Kernel $kernel_major detected → Using KMI: $kmi"
+    mkdir -p tmp/init_boot
+    (
+    cd tmp/init_boot
+    cp -f "${work_dir}/build/baserom/images/init_boot.img" "${work_dir}/tmp/init_boot/"
+    ksud boot-patch \
+        -b "${work_dir}/tmp/init_boot/init_boot.img" \
+        --magiskboot magiskboot \
+        --kmi "$kmi"
+    mv -f "${work_dir}/tmp/init_boot/kernelsu_"*.img "${work_dir}/build/baserom/images/init_boot-kernelsu.img"
+    )
+fi
+
+# Add EROFS fstab entries (only if necessary)
+# if [ ${pack_type} == "EROFS" ];then
+#     yellow "Checking if EROFS mount points need to be added to vendor fstab.qcom" "Validating whether adding erofs mount points is needed."
+#     if ! grep -q "erofs" build/portrom/images/vendor/etc/fstab.qcom ; then
+#                for pname in system odm vendor product mi_ext system_ext; do
+#                      sed -i "/\/${pname}[[:space:]]\+ext4/{p;s/ext4/erofs/;s/ro,barrier=1,discard/ro/;}" build/portrom/images/vendor/etc/fstab.qcom
+#                      added_line=$(sed -n "/\/${pname}[[:space:]]\+erofs/p" build/portrom/images/vendor/etc/fstab.qcom)
+#                     if [ -n "$added_line" ]; then
+#                         yellow "Adding mount point: $pname" "Adding mount point $pname"
+#                     else
+#                         error "Addition failed. Please check content." "Adding faild, please check."
+#                         exit 1
+                        
+#                     fi
+#                 done
+#     fi
+# fi
+
+# Disable AVB Verification
+blue "Disabling AVB Verification" "Disable avb verification."
+disable_avb_verify build/portrom/images/
+
+# Data Decryption
+remove_data_encrypt=$(grep "remove_data_encryption" bin/port_config 2>/dev/null | cut -d '=' -f 2 || true)
+if [[ ${remove_data_encrypt} == "true" ]];then
+    DECRYPTRD="-DECRYPTED"
+    blue "Disabling data encryption"
+    while IFS= read -r fstab; do
+		blue "Target: $fstab"
+		sed -i "s/,fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0//g" $fstab
+		sed -i "s/,fileencryption=aes-256-xts:aes-256-cts:v2+emmc_optimized+wrappedkey_v0//g" $fstab
+		sed -i "s/,fileencryption=aes-256-xts:aes-256-cts:v2//g" $fstab
+		sed -i "s/,metadata_encryption=aes-256-xts:wrappedkey_v0//g" $fstab
+		sed -i "s/,fileencryption=aes-256-xts:wrappedkey_v0//g" $fstab
+		sed -i "s/,metadata_encryption=aes-256-xts//g" $fstab
+		sed -i "s/,fileencryption=aes-256-xts//g" $fstab
+        sed -i "s/,fileencryption=ice//g" $fstab
+		sed -i "s/fileencryption/encryptable/g" "$fstab"
+	done < <(find build/portrom/images -type f -name "fstab.*")
+fi
+
+# for pname in ${port_partition};do
+#     rm -rf build/portrom/images/${pname}.img
+# done
+echo "${pack_type}">fstype.txt
+if [[ "${super_extended}" == true ]];then
+    superSize=$(bash bin/getSuperSize.sh "others")
+elif [[ $base_product_model == "KB2000" ]] && [[ "$is_ab_device" == false ]] ; then
+    # OnePlus 8T A-only ROM
+    echo ro.product.cpuinfo=SM8250 >> build/portrom/images/my_manifest/build.prop
+    superSize=$(bash bin/getSuperSize.sh OnePlus9R)
+elif [[ $base_product_model == "LE2101" ]]; then
+    # "9R IN"
+    superSize=$(bash bin/getSuperSize.sh OnePlus8T)
+else
+    superSize=$(bash bin/getSuperSize.sh $base_product_device)
+fi
+
+green "Super Size: ${superSize}" "Super image size: ${superSize}"
+###############################################################################
+# Repacking Partitions (Directory -> *.img)
+#
+# - `bin/fspatch.py`   : Generates fs_config (UID/GID/Mode/Capabilities)
+# - `bin/contextpatch.py`: Generates file_contexts (SELinux labels)
+# - `mkfs.erofs`       : Creates EROFS image from directory
+#
+# Note:
+#   Only partitions included in `super_list` are processed.
+###############################################################################
+green "Starting image packing" "Packing img"
+for pname in ${super_list};do
+    if [ -d "build/portrom/images/$pname" ];then
+        if [[ "$OSTYPE" == "darwin"* ]];then
+            thisSize=$(find build/portrom/images/${pname} | xargs stat -f%z | awk ' {s+=$1} END { print s }' )
+        else
+            thisSize=$(du -sb build/portrom/images/${pname} |tr -cd 0-9)
+        fi
+        blue "Packing [${pname}.img] with [${pack_type}]" "Packing [${pname}.img] with [${pack_type}]"
+        python3 bin/fspatch.py "build/portrom/images/${pname}" "build/portrom/images/config/${pname}_fs_config"
+        python3 bin/contextpatch.py "build/portrom/images/${pname}" "build/portrom/images/config/${pname}_file_contexts"
+        if [[ "${pack_type}" == "EXT" ]]; then
+            # EXT4 repack path
+            make_ext4fs -s -T 1648635685 \
+                -l "${thisSize}" \
+                -C "build/portrom/images/config/${pname}_fs_config" \
+                -L "${pname}" \
+                -a "${pname}" \
+                "build/portrom/images/${pname}.img" \
+                "build/portrom/images/${pname}" \
+                || { python3 bin/make_ext4fs.py \
+                       -T 1648635685 \
+                       -l "${thisSize}" \
+                       -s "build/portrom/images/config/${pname}_fs_config" \
+                       -c "build/portrom/images/config/${pname}_file_contexts" \
+                       "build/portrom/images/${pname}.img" \
+                       "build/portrom/images/${pname}" || true; }
+        else
+            # EROFS repack path (default)
+            mkfs.erofs -zlz4hc,9 \
+                --mount-point "${pname}" \
+                --fs-config-file "build/portrom/images/config/${pname}_fs_config" \
+                --file-contexts "build/portrom/images/config/${pname}_file_contexts" \
+                -T 1648635685 \
+                "build/portrom/images/${pname}.img" \
+                "build/portrom/images/${pname}"
+        fi
+        if [[ -f "build/portrom/images/${pname}.img" ]]; then
+            green "Successfully packed [${pname}.img] as [${pack_type}]"
+        else
+            error "Failed to pack [${pname}] as [${pack_type}]" "Pack failed: ${pname}"
+            exit 1
+        fi
+        unset fsType
+        unset thisSize
+    fi
+done
+
+
+rm -f fstype.txt
+
+if [[ "${port_vendor_brand}" == "realme" ]]; then
+    os_type="RealmeUI"
+else
+    os_type="ColorOS"
+fi
+rom_version=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id" | cut -d'(' -f1)
+while IFS= read -r img; do
+    blue "Disabling vbmeta verification: $img"
+    python3 bin/patch-vbmeta.py "$img" > /dev/null 2>&1
+done < <(find build/baserom/ -type f -name "vbmeta*.img")
+if [[ -f "devices/${base_product_device}/recovery.img" ]]; then
+  cp -rfv "devices/${base_product_device}/recovery.img" build/baserom/images/
+fi
+
+if [[ -f "devices/${base_product_device}/vendor_boot.img" ]]; then
+  cp -rfv "devices/${base_product_device}/vendor_boot.img" build/baserom/images/
+fi
+
+if [[ -f "devices/${base_product_device}/abl.img" ]]; then
+  cp -rfv "devices/${base_product_device}/abl.img" build/portrom/images/
+fi
+
+if [[ -f "devices/${base_product_device}/odm.img" ]]; then
+  cp -rfv "devices/${base_product_device}/odm.img" build/portrom/images/
+fi
+
+if [[ -f "devices/${base_product_device}/tz.img" ]]; then
+  cp -rfv "devices/${base_product_device}/tz.img" build/baserom/images/
+fi
+
+if [[ -f "devices/${base_product_device}/keymaster.img" ]]; then
+  cp -rfv "devices/${base_product_device}/keymaster.img" build/baserom/images/
+fi
+
+if [[ "$is_ab_device" == true ]]; then
+    if [[ ! -f build/portrom/images/my_preload.img ]];then
+        cp -rfv devices/common/my_preload_empty.img build/portrom/images/my_preload.img
+    fi
+    if [[ ! -f build/portrom/images/my_company.img ]];then
+        cp -rfv devices/common/my_company_empty.img build/portrom/images/my_company.img
+    fi
+elif [[ "$is_ab_device" == false ]];then
+    rm -rf build/portrom/images/my_company.img
+    rm -rf build/portrom/images/my_preload.img
+fi
+
+###############################################################################
+# Package Creation
+#
+# Final output format changes based on `pack_method`.
+# - stock: Assembles `out/target/product/<device>/` (target_files style) and generates OTA (full) zip via `otatools`
+# - other: Creates super.img via `lpmake` and generates flashable zip (bundled with windows/mac/linux scripts)
+###############################################################################
+pack_timestamp=$(date +"%m%d%H%M")
+super_list_info=""  # accumulated partition list for OTA metadata
+output_zip=""  # set by whichever pack path runs - used in final banner
+if [[ "$pack_method" == "stock" ]];then
+    rm -rf "out/target/product/${base_product_device}/"
+    mkdir -p "out/target/product/${base_product_device}/IMAGES"
+    mkdir -p "out/target/product/${base_product_device}/META"
+    for part in SYSTEM SYSTEM_EXT PRODUCT VENDOR ODM; do
+        mkdir -p "out/target/product/${base_product_device}/$part"
+    done
+    mv -fv build/portrom/images/*.img "out/target/product/${base_product_device}/IMAGES/"
+    if [[ -d build/baserom/firmware-update ]];then
+        bootimg=$(find build/baserom/ -name "boot.img")
+        cp -rf "$bootimg" "out/target/product/${base_product_device}/IMAGES/"
+    else
+        if [[ -f build/baserom/images/init_boot-kernelsu.img ]];then
+            mv build/baserom/images/init_boot-kernelsu.img build/baserom/images/init_boot.img
+        fi
+        mv -fv build/baserom/images/*.img "out/target/product/${base_product_device}/IMAGES/"
+    fi
+
+    if [[ -d "devices/${base_product_device}" ]];then
+
+        ksu_bootimg_file=$(find "devices/${base_product_device}/" -type f \( -name "*boot_ksu.img" -o -name "*boot_custom.img" -o -name "*boot_noksu.img" \) | head -n 1)
+        dtbo_file=$(find "devices/${base_product_device}/" -type f \( -name "*dtbo_ksu.img" -o -name "*dtbo_custom.img" -o -name "*dtbo_noksu.img" \) | head -n 1)
+        vendor_boot_file=$(find "devices/${base_product_device}/" -type f -name "vendor_boot.img" | head -n 1)
+
+        if [ -n "$ksu_bootimg_file" ];then
+            mv -fv "$ksu_bootimg_file" "out/target/product/${base_product_device}/IMAGES/boot.img"
+        else
+            spoof_bootimg "out/target/product/${base_product_device}/IMAGES/boot.img"
+        fi
+
+        if [ -n "$dtbo_file" ];then
+            mv -fv "$dtbo_file" "out/target/product/${base_product_device}/IMAGES/dtbo.img"
+        fi
+
+        if [ -n "$vendor_boot_file" ];then
+             cp -fv "$vendor_boot_file" "out/target/product/${base_product_device}/IMAGES/vendor_boot.img"
+        fi
+    fi
+    rm -rf "out/target/product/${base_product_device}/META/ab_partitions.txt"
+    rm -rf "out/target/product/${base_product_device}/META/update_engine_config.txt"
+    rm -rf "out/target/product/${base_product_device}/target-file.zip"
+    for part in out/target/product/${base_product_device}/IMAGES/*.img; do
+        partname=$(basename "$part" .img)
+        echo $partname >> out/target/product/${base_product_device}/META/ab_partitions.txt
+        if echo $super_list | grep -q -w "$partname"; then
+            super_list_info+="$partname "
+            otatools/bin/map_file_generator $part ${part%.*}.map
+        fi
+    done 
+    rm -rf out/target/product/${base_product_device}/META/dynamic_partitions_info.txt
+    (( groupSize = superSize - 1048576 ))
+    {
+        echo "super_partition_size=$superSize"
+        echo "super_partition_groups=qti_dynamic_partitions"
+        echo "super_qti_dynamic_partitions_group_size=$groupSize"
+        echo "super_qti_dynamic_partitions_partition_list=$super_list_info"
+        echo "virtual_ab=true"
+        echo "virtual_ab_compression=true"
+    } >> out/target/product/${base_product_device}/META/dynamic_partitions_info.txt
+
+    {
+        #echo "default_system_dev_certificate=key/testkey"
+        echo "recovery_api_version=3"
+        echo "fstab_version=2"
+        echo "ab_update=true"
+     } >> out/target/product/${base_product_device}/META/misc_info.txt
+    
+    {
+        echo "PAYLOAD_MAJOR_VERSION=2"
+        echo "PAYLOAD_MINOR_VERSION=8"
+    } >> out/target/product/${base_product_device}/META/update_engine_config.txt
+
+    if [[ "$is_ab_device" == false ]];then
+        sed -i "/ab_update=true/d" out/target/product/${base_product_device}/META/misc_info.txt
+        {
+            echo "blockimgdiff_versions=3,4"
+            echo "use_dynamic_partitions=true"
+            echo "dynamic_partition_list=$super_list_info"
+            echo "super_partition_groups=qti_dynamic_partitions"
+            echo "super_qti_dynamic_partitions_group_size=$superSize"
+            echo "super_qti_dynamic_partitions_partition_list=$super_list_info"
+            echo "board_uses_vendorimage=true"
+            echo "cache_size=402653184"
+
+        } >> out/target/product/${base_product_device}/META/misc_info.txt
+        mkdir -p out/target/product/${base_product_device}/OTA/bin
+        for part in MY_PRODUCT MY_BIGBALL MY_CARRIER MY_ENGINEERING MY_HEYTAP MY_MANIFEST MY_REGION MY_STOCK;do
+            mkdir -p out/target/product/${base_product_device}/$part
+        done
+
+        if [[ -f devices/${base_product_device}/OTA/bin/updater ]];then
+            cp -rf devices/${base_product_device}/OTA/bin/updater out/target/product/${base_product_device}/OTA/bin
+        else
+            cp -rf devices/common/non-ab/OTA/updater out/target/product/${base_product_device}/OTA/bin
+        fi
+        if [[ -d build/baserom/firmware-update ]];then
+            cp -rf build/baserom/firmware-update out/target/product/${base_product_device}/ || true
+        elif find build/baserom/ -type f \( -name "*.elf" -o -name "*.mdn" -o -name "*.bin" \) | grep -q .; then
+            while IFS= read -r firmware; do
+                mv -fv "$firmware" out/target/product/${base_product_device}/firmware-update/
+            done < <(find build/baserom/ -type f \( -name "*.elf" -o -name "*.mdn" -o -name "*.bin" \))
+            bootimg=$(find build/baserom/ -name "boot.img")
+            dtboimg=$(find build/baserom/images -name "dtbo.img")
+            vbmetaimg=$(find build/baserom/ -name "vbmeta.img")
+            vmbeta_systemimg=$(find build/baserom/ -name "vbmeta_sytem.img")
+            cp -rf $bootimg out/target/product/${base_product_device}/IMAGES/
+            cp -rf $dtboimg out/target/product/${base_product_device}/firmware-update
+            cp -rf $vbmetaimg out/target/product/${base_product_device}/firmware-update
+            cp -rf $vmbeta_systemimg out/target/product/${base_product_device}/firmware-update
+        fi
+
+        if [[ -d build/baserom/storage-fw ]];then
+            cp -rf build/baserom/storage-fw out/target/product/${base_product_device}/ || true
+            cp -rf build/baserom/ffu_tool out/target/product/${base_product_device}/storage-fw || true
+        else
+            cp -rf build/baserom/ffu_tool out/target/product/${base_product_device}/ || true
+	fi
+
+        export OUT=$(pwd)/out/target/product/${base_product_device}/
+        if [[ -f devices/${base_product_device}/releasetools.py ]];then
+            cp -rf devices/${base_product_device}/releasetools.py out/target/product/${base_product_device}/META/
+        else
+            cp -rf devices/common/releasetools.py out/target/product/${base_product_device}/META/
+        fi
+
+        mkdir -p out/target/product/${base_product_device}/RECOVERY/RAMDISK/etc/
+        if [[ -f devices/${base_product_device}/recovery.fstab ]];then
+            cp -rf devices/${base_product_device}/recovery.fstab out/target/product/${base_product_device}/RECOVERY/RAMDISK/etc/
+        else
+            cp -rf devices/common/recovery.fstab out/target/product/${base_product_device}/RECOVERY/RAMDISK/etc/
+        fi
+    fi
+    declare -A prop_paths=(
+    ["system"]="SYSTEM"
+    ["product"]="PRODUCT"
+    ["system_ext"]="SYSTEM_EXT"
+    ["vendor"]="VENDOR"
+    ["my_manifest"]="ODM"
+    
+    )
+
+    for dir in "${!prop_paths[@]}"; do
+        prop_file=$(find "build/portrom/images/$dir" -type f -name "build.prop" -not -path "*/system_dlkm/*" -not -path "*/odm_dlkm/*" -print -quit)
+        if [ -n "$prop_file" ]; then
+            cp "$prop_file" "out/target/product/${base_product_device}/${prop_paths[$dir]}/"
+        fi
+	    done
+	    target_folder=${rom_version#*_}
+	    pushd otatools >/dev/null
+	    export PATH=$(pwd)/bin/:$PATH
+	    mkdir -p ${work_dir}/out/$target_folder
+	    if [[ -n "${OTA_KEY:-}" ]]; then
+	        ota_key="${OTA_KEY}"
+	    elif [[ -f "build/make/target/product/security/testkey.pk8" && -f "build/make/target/product/security/testkey.x509.pem" ]]; then
+	        ota_key="build/make/target/product/security/testkey"
+	    else
+	        ota_key="key/testkey"
+	    fi
+	    if [[ ! -f "${ota_key}.pk8" || ! -f "${ota_key}.x509.pem" ]]; then
+	        popd >/dev/null
+	        error "OTA Signing Key not found: otatools/${ota_key}.{pk8,x509.pem}" \
+	              "OTA signing key not found: otatools/${ota_key}.{pk8,x509.pem}"
+	        exit 1
+	    fi
+	    ota_zip="${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip"
+	    ./bin/ota_from_target_files -k "${ota_key}" \
+	        "${work_dir}/out/target/product/${base_product_device}/" \
+	        "${ota_zip}"
+	    ota_rc=$?
+	    popd >/dev/null
+	    if [[ ${ota_rc} -ne 0 || ! -f "${ota_zip}" ]]; then
+	        error "OTA package generation failed: ${ota_zip}" "Failed to generate OTA package: ${ota_zip}"
+	        exit 1
+	    fi
+	    ziphash=$(md5sum "${ota_zip}" | head -c 10)
+	    mv -f "${ota_zip}" "out/$target_folder/ota_full-${rom_version}-${port_product_model}-${pack_timestamp}-$regionmark-${portrom_version_security_patch}-${ziphash}.zip"
+		blue "Packing complete: out/$target_folder/ota_full-${rom_version}-${port_product_model}-${pack_timestamp}-$regionmark-${portrom_version_security_patch}-${ziphash}.zip"
+	else
+	   if [[ "${is_ab_device}" == true ]]; then
+	        # Pack super.img
+        blue "Packing super.img for V-A/B terminal" "Packing super.img for V-AB device"
+        lpargs="-F --virtual-ab --output build/portrom/images/super.img --metadata-size 65536 --super-name super --metadata-slots 3 --device super:$superSize --group=qti_dynamic_partitions_a:$superSize --group=qti_dynamic_partitions_b:$superSize"
+
+        for pname in ${super_list};do
+            if [ -f "build/portrom/images/${pname}.img" ];then
+                subsize=$(du -sb build/portrom/images/${pname}.img |tr -cd 0-9)
+                green "Super Sub-partition [$pname] Size [$subsize]" "Super sub-partition [$pname] size: [$subsize]"
+                args="--partition ${pname}_a:none:${subsize}:qti_dynamic_partitions_a --image ${pname}_a=build/portrom/images/${pname}.img --partition ${pname}_b:none:0:qti_dynamic_partitions_b"
+                lpargs="${lpargs} ${args}"
+            fi
+        done
+
+        blue "Running lpmake..." "Running lpmake to build super.img"
+        read -ra _lp_arr <<< "${lpargs}"
+        lpmake "${_lp_arr[@]}"
+
+        if [[ -f build/portrom/images/super.img ]]; then
+            green "super.img built successfully"
+        else
+            error "super.img build failed — check lpmake output" "lpmake failed"
+            exit 1
+        fi
+    elif [[ "${is_ab_device}" == false ]]; then
+        blue "Packing super.img for A-only device"
+        lpargs="-F --output build/portrom/images/super.img --metadata-size 65536 --super-name super --metadata-slots 2 --block-size 4096 --device super:$superSize --group=qti_dynamic_partitions:$superSize"
+        for pname in ${super_list}; do
+            if [[ -f "build/portrom/images/${pname}.img" ]]; then
+                subsize=$(du -sb build/portrom/images/${pname}.img | tr -cd 0-9)
+                green "Super sub-partition [$pname] size: [$subsize]"
+                lpargs="${lpargs} --partition ${pname}:none:${subsize}:qti_dynamic_partitions --image ${pname}=build/portrom/images/${pname}.img"
+            fi
+        done
+        read -ra _lp_arr <<< "${lpargs}"
+        lpmake "${_lp_arr[@]}"
+        if [[ -f build/portrom/images/super.img ]]; then
+            green "super.img (A-only) built successfully"
+        else
+            error "super.img build failed" "lpmake failed"; exit 1
+        fi
+    fi
+
+    # ── Package into flashable zip ────────────────────────────────────────────
+    pack_timestamp=$(date +"%m%d%H%M")
+    rom_version=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id" | cut -d'(' -f1)
+    output_zip="out/${os_type}_${rom_version}_${base_product_model}_${pack_timestamp}_flashable.zip"
+    mkdir -p out
+
+    blue "Packaging flashable zip: ${output_zip}"
+
+    # Gather images to package
+    zip_staging="tmp/zip_staging"
+    rm -rf "${zip_staging}"
+    mkdir -p "${zip_staging}/images"
+
+    # super.img goes in for V-AB; baserom firmware images go alongside
+    if [[ "$is_ab_device" == true ]]; then
+        cp -f build/portrom/images/super.img "${zip_staging}/images/"
+    fi
+
+    # Copy all non-super partition images (boot, dtbo, vbmeta, etc.) from baserom
+    while IFS= read -r img; do
+        imgname=$(basename "${img}")
+        [[ "${imgname}" == "super.img" ]] && continue
+        cp -f "${img}" "${zip_staging}/images/"
+    done < <(find build/baserom/images/ -maxdepth 1 -type f -name "*.img")
+
+    # KSU / custom boot if present
+    ksu_bootimg=$(find "devices/${base_product_device}/" -type f \
+        \( -name "*boot_ksu.img" -o -name "*boot_custom.img" -o -name "*boot_noksu.img" \) \
+        | head -n 1)
+    if [[ -n "${ksu_bootimg}" ]]; then
+        cp -f "${ksu_bootimg}" "${zip_staging}/images/boot.img"
+    else
+        spoof_bootimg "${zip_staging}/images/boot.img" 2>/dev/null || true
+    fi
+
+    # Flash script (device-specific or common fallback)
+    if [[ -f "devices/${base_product_device}/flash.sh" ]]; then
+        cp -f "devices/${base_product_device}/flash.sh" "${zip_staging}/flash.sh"
+    elif [[ -f "devices/common/flash.sh" ]]; then
+        cp -f "devices/common/flash.sh" "${zip_staging}/flash.sh"
+    fi
+
+    # Windows flash script
+    if [[ -f "devices/${base_product_device}/flash.bat" ]]; then
+        cp -f "devices/${base_product_device}/flash.bat" "${zip_staging}/flash.bat"
+    elif [[ -f "devices/common/flash.bat" ]]; then
+        cp -f "devices/common/flash.bat" "${zip_staging}/flash.bat"
+    fi
+
+    # Substitute device code placeholders in flash scripts
+    for fscript in "${zip_staging}/flash.sh" "${zip_staging}/flash.bat"; do
+        if [[ -f "${fscript}" ]]; then
+            sed -i "s/device_code/${base_device_code}/g" "${fscript}"
+            sed -i "s/DEVICE_CODE/${base_device_code}/g" "${fscript}"
+        fi
+    done
+
+    # Build the zip
+    pushd "${zip_staging}" > /dev/null
+    zip -r9j "${work_dir}/${output_zip}" .
+    popd > /dev/null
+
+    if [[ -f "${output_zip}" ]]; then
+        ziphash=$(md5sum "${output_zip}" | cut -c1-10)
+        final_name="${output_zip%.zip}_${ziphash}.zip"
+        mv -f "${output_zip}" "${final_name}"
+        output_zip="${final_name}"
+        green "Flashable zip created: ${output_zip}"
+    else
+        error "Failed to create flashable zip" "Zip packaging failed"
+        exit 1
+    fi
+
+fi  # end of pack_method != stock
+
+# ── Final banner ─────────────────────────────────────────────────────────────
+_BUILD_ELAPSED=$(( SECONDS - _BUILD_START ))
+_BUILD_MM=$(( _BUILD_ELAPSED / 60 ))
+_BUILD_SS=$(( _BUILD_ELAPSED % 60 ))
+green "════════════════════════════════════════════════════════"
+green " Port complete — Rapchick Engine (@revork / Ozyern)"
+green " Output  : ${output_zip:-<see out/ directory>}"
+green " Duration: ${_BUILD_MM}m ${_BUILD_SS}s"
+green "════════════════════════════════════════════════════════"
