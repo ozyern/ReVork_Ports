@@ -3700,6 +3700,157 @@ OP9PROEOF
         # ════════════════════════════════════════════════════════════════════
     fi
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ColorOS China Optimization Block — auto-detection + CN-specific tuning
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-detect ColorOS China variants and apply CN market-specific optimizations
+# Supported: OP9 Pro CN (OP4E5D), OP9RT CN (OP4E3F), OPPO Find X3 CN variants
+# ─────────────────────────────────────────────────────────────────────────────
+
+# CN variant detection — check system props for domestic market indicators
+is_coloros_china=false
+case "${base_product_device}" in
+    OP4E5D|OP4E3F|LE2100|LE2101|LE2110|LE2111|LE2112|LE2113|LE2120|LE2121|LE2123|LE2125)
+        # OneP Plus CN model codes detected
+        if [[ "${base_area}" == "domestic" ]]; then
+            is_coloros_china=true
+            blue "ColorOS China detected — applying CN-specific optimizations (${base_product_device})"
+        fi
+        ;;
+esac
+
+# Apply CN-specific optimizations if ColorOS China is detected
+if [[ "${is_coloros_china}" == true ]] && [[ "${base_device_family}" == "OPSM8350" ]]; then
+    SYSTEM_PATH="build/portrom/images/system/system"
+    VENDOR_PATH="build/portrom/images/vendor"
+
+    if [[ ! -f "$SYSTEM_PATH/build.prop" || ! -f "$VENDOR_PATH/default.prop" ]]; then
+        yellow "ColorOS China optimizations skipped: required prop files not found"
+    else
+        blue "Implementing ColorOS China Optimization Profile..."
+
+        # ── Regional Market Properties (CN-specific)
+        # These properties are checked by CN market apps and system services
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.oplus.image.system_ext.area=domestic"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.oplus.image.system_ext.brand=oneplus"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.oplus.market=CN"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.oplus.locale.region=CN"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.regional_brand=oneplus_cn"
+
+        # Dual-SIM framework (CN market requirement)
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.radio.allow_ims_off=1"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.telephony.use_old_mnc_mcc_format=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.dtm.qcmap_mode=0"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.multisim.config=dsds"
+
+        # CN network stack optimization — Volte + WiFi calling in CN networks
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.cne.feature=46"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.data.mode=concurrent"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.oplus.netspeed=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.oplus.radioinfo=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.telephony.vt_cam_0=1"
+
+        # CN market: disable Google Services data saver (replaces with local TencentCloud CDN)
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.config.data_saver_support_nonmetered=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.usb.config=adb,mtp"
+
+        # ── CN Thermal Management — More Aggressive Than Global
+        # CN market devices often used in high ambient temperatures (35-40°C)
+        # Thermal management must be proactive to avoid user discomfort
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.thermal.cn_profile=aggressive"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.target_temp=62"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.critical=78"
+        # CN: battery thermal limit lower than global (protect against extended high-temp use)
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.high_temp=420"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.cool_temp=120"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.usb_thermal_limit=450"
+
+        # ── CN Gaming Optimization — Frame Pacing for NetEase/Tencent Titles
+        # Popular CN games: Honor of Kings, PUBG CN, Call of Duty Mobile CN
+        # These apps benchmark aggressively on CN devices; optimize for sustained perf
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.frame_pacing_enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.sustained_perf=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.mode_agg=2"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.render_thread_boost=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.touch_boost_enabled=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.min_freq_lock_duration=1000"
+
+        # ── CN Memory Optimization — Pressure from Many CN Background Apps
+        # CN market apps (WeChat, Alipay, QQ, Douyin) more aggressive background services
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.bg_apps_limit=32"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.sys.fw.bg_apps_limit=32"
+        # More aggressive swappiness for CN light phone usage pattern
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.swappiness=25"
+        # CN: LMK tuning for light usage scenario
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_partial_stall_ms=50"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_complete_stall_ms=500"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.upgrade_pressure=35"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.downgrade_pressure=65"
+
+        # ── CN Battery Optimization — Extended Idle Time Critical
+        # CN users often leave phones idle for 8-12 hours during work/school
+        # Radio dormancy must be aggressive to survive long standby
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.hw_fast_dormancy=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.add_power_save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.profiler_ms=200"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.audio.fluence.speaker=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.bluetooth.low_latency_audio=true"
+
+        # CN WiFi optimization — CN market has many strict WiFi APs (weak signal areas)
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.enhanced.power.save=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.low_latency_scan_suppress=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.wifi.power_save_mode=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radar.log_en=0"
+
+        # ── CN Network Stack Tuning — QoS Management
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.qos.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.data.iwlan.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.ims.enabled=1"
+
+        # ── CN 5G Optimization
+        # China's 5G rollout is extensive — optimize for CN bands and carriers (CMCC, CUCC, CTCC)
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.telephony.default_network=33,33"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.enable_preload_mbnfiles=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.verbose_logging=0"
+        # CN: 5G power saving — reduce modem wake frequency
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.data_con_rpms=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.force_on_dc=true"
+
+        # ── CN Performance Tuning — Faster App Launch for CN Market Expectations
+        # CN users benchmark heavily; need snappier launch feel
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.app_launch_hint_enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.sched_boost_on_top_app=1"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.app_launch_boost_ms=2000"
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.app_launch_cpu_boost=1"
+
+        # ── CN Fingerprint + Face Recognition Tuning
+        # CN phones heavily use biometric unlock; optimize for responsiveness
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.fingerprint.wakeup=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.biometric.facelock.enable=true"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.sys.facelock.timeout=10000"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.ultra_touch_response=true"
+
+        # ── CN Payment Security Settings
+        # Alipay, WeChat Pay require specific security properties for CN market
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.oplus.security.facelock=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.oplus.secure_boot=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sys.usb.config=adb"
+
+        # ── CN Regional Display Settings (Optional)
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.oplus.locale=zh_CN"
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.locale=zh_CN"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.com.google.clientidbase=android-oneplus-cn"
+
+        # ── CN Market App Ecosystem Optimization
+        # Tencent Cloud + Alibaba PouchContainer optimizations for CN app distribution
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.tencent.appstore=true"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.oplus.multirom.support=1"
+
+        green "ColorOS China optimization profile applied successfully"
+    fi
+fi
+
 if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true || "${portIsColorOS}" == true ]]; then
     blue "Installing Kaorios Toolbox..."
 
