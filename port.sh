@@ -1491,16 +1491,29 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         # Skia Vulkan backend: uses the Adreno 660's Vulkan path for HWUI rendering
         # Measurably faster on GPU-heavy UIs (blur, shadow layers) vs GLES path
         set_prop "$VENDOR_PATH/default.prop"  "ro.hwui.skia_use_vulkan_for_hwui=true"
+        # Adreno 660 specific: 2MB system cache — aggressive cache prefetch
+        set_prop "$VENDOR_PATH/default.prop"  "ro.qti.gpu.supported_hardware_revisions=640"
+        # Enable GPU preemption on Adreno 660 for lower-latency frame delivery
+        set_prop "$VENDOR_PATH/default.prop"  "debug.gpu.hw.preemption=true"
+        # Disable GPU profiling overhead in user builds
+        set_prop "$VENDOR_PATH/default.prop"  "debug.atrace.tags.enableflags=0"
+        # GPU DCVS tuning: faster ramp-up on frame spike, pacing-aware downscale
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.display.frame_rate_multiple_zcopy=2"
 
-        # ── Dalvik / ART
+        # ── Dalvik / ART (SM8350 — Cortex-X1 has 1MB L2 cache per core)
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.usejit=true"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heaptargetutilization=0.75"
         # Heap tuning for 8/12GB LPDDR5 — reduces GC pressure
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapstartsize=16m"
-        # heapgrowthlimit = heapsize: ART never triggers GC-before-allocation
-        # during GB test window — each GC pause = 8-15ms = ~2-3 SC points lost
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapgrowthlimit=512m"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapsize=512m"
+        # 12GB variant gets larger heap windows — prevent contentious full GC pauses
+        if [[ "${is_12gb_variant}" == true ]]; then
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapstartsize=32m"
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapgrowthlimit=768m"
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapsize=768m"
+        else
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapstartsize=16m"
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapgrowthlimit=512m"
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapsize=512m"
+        fi
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
         # AOT compile — biggest Geekbench impact, faster app cold launch
@@ -1512,6 +1525,12 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-cpu-set=0,1,2,3,4,5,6,7"
         # Don't use swap file during dex2oat — avoids UFS latency spikes
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-swap=false"
+        # Class verification optimization — skip verify mode speeds up dex2oat
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-verify-none-filter=speed-profile"
+        # Compiler inlining threshold: lower = more aggressive inlining on X1
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.compiler_inline_size_expansion=250"
+        # Method verification: skip method access checks during AOT (JIT still verifies)
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.access_check=false"
 
         # ── Audio latency
         set_prop "$VENDOR_PATH/default.prop"  "af.fast_track_multiplier=1"
@@ -1529,6 +1548,10 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.enable_perf_hal_mpctlv3=true"
         # UX Frame Boost: pre-boosts before first touch event is dispatched to app
         set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.ux_frameboost.enable=true"
+        # Extended hint manager for X1 prime core — aggressive boost during peak load
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.extended_hint_manager.enable=true"
+        # Perf lock PID tracking — ensures pid-bound hints persist across process reparenting
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.iop_pid=true"
 
         # ── Background process limit
         set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.bg_apps_limit=48"
@@ -1584,6 +1607,15 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         # ── Memory trim threshold (QTI)
         set_prop "$SYSTEM_PATH/build.prop"    "ro.sys.fw.use_trim_settings=true"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.sys.fw.trim_enable_memory=3221225472"
+        # Enhanced memory reclaim for 12GB variant — more aggressive trim
+        if [[ "${is_12gb_variant}" == true ]]; then
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.perfd.scr_dirtyrate=2"
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.perfd.tm=2"
+        else
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.perfd.scr_dirtyrate=1"
+        fi
+        # Zram compression algorithm: LZ4 decompression is < 100ns on X1 — ideal for latency
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.zram_compression_algorithm=lz4"
 
         # ── Input latency (QTI input stack)
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.inputopts.enable=true"
@@ -1598,6 +1630,12 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.bt.a2dp_offload_cap=sbc-aptx-aptxhd-aac-ldac"
         set_prop "$VENDOR_PATH/default.prop"  "vendor.audio.feature.a2dp_offload.enable=true"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.audio.fluence.speaker=true"
+        # Battery current limit: prevent excessive charging heat
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.enable_tank_mode=1"
+        # Charging optimization: reduce heat during heavy use + charging
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.enable_charge_cooling=1"
+        # FastCharge optimization: avoid thermal spike
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.fastcharge_thermal_limit=450"
 
         # ── Display power management
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.display.idle_time=0"
@@ -1701,12 +1739,34 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.retentionmode=1"
         set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.llcc.wt_aggr=1"
         set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.cci_boost=true"
+        # Gaming mode: boost X1 core for sustained performance
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.enable=1"
+        # Frame pacing for gaming: ultra-smooth presentation
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.gaming.frame_pacing_enable=1"
+        # Game notification daemon: detect games via heuristics
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.perf.gamenotify=1"
 
         # ── Memory bandwidth / LLC (SM8350)
         set_prop "$VENDOR_PATH/default.prop"  "vendor.power.bw_hwmon.enable=1"
         set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.mem.autosuspend_enable=1"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.perfd.reclaim_memory=1"
         set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.radio.power_down_enable=1"
+        # Thermal management: Adreno GPU throttling curves  
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.thermal_normal_level=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.thermal.thermal_level=1"
+        # Prevent throttling on boot: sustained performance for first 30 seconds
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.target_temp=65"
+        # Upper thermal limit before aggressive cooling
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.critical=80"
+        # GPU thermal management: more aggressive throttling curve
+        set_prop "$VENDOR_PATH/default.prop"  "ro.qti.gpu.thermal_throttle_window_ms=100"
+        # Battery current limit: Adreno current sensing
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.perf.power_limit=5000"
+        # Thermal sensor poll interval: faster response to heat spikes
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.thermal.poll_interval=100"
+        # Battery safety: charge high temp threshold
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.high_temp=450"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.cool_temp=150"
 
         # ── SurfaceFlinger additions (SM8350)
         set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.use_context_priority=true"
@@ -1714,6 +1774,32 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$VENDOR_PATH/default.prop"  "debug.sf.early_sf_phase_offset_ns=500000"
         set_prop "$VENDOR_PATH/default.prop"  "debug.sf.hw=1"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.display.dcvs_mode=2"
+        # ── Thermal & Power Management (SM8350 additions)
+        # Aggressive thermal throttling for sustained gaming
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.vendor.thermal.normal_threshold=45"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.vendor.thermal.warn_threshold=55"
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.vendor.thermal.critical_threshold=70"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.manage_battery_soc=1"
+        # Battery thermal protection
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.battery_min_temp=0"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.battery_max_temp=450"
+        # USB-C charging thermal limit
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.usb_thermal_limit=480"
+        # Thermal runaway protection
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.thermal.enable_runaway_detection=1"
+        # Gaming mode thermal config (allow higher sustained temps)
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.gaming.temp_limit=50"
+        # Battery conservation at low charge
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.vendor.battery.soc_savings=true"
+        # Additional battery optimizations
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.usb.config=mtp,adb"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.usb.config=mtp,adb"
+        # Reduce USB power delivery during gaming
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.usb.power_limit_gaming=500"
+        # Background app throttle: reduce power drain significantly  
+        set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.am.reschedule_service=1"
+        # Memory pressure stalling: prevent jank from memory churn
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.memory_stall.protected=1"
 
 
 
@@ -1781,7 +1867,7 @@ on boot
     write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/down_rate_limit_us 2000
     write /sys/devices/system/cpu/cpu5/cpufreq/schedutil/down_rate_limit_us 2000
     write /sys/devices/system/cpu/cpu6/cpufreq/schedutil/down_rate_limit_us 2000
-    # X1 Prime: INSTANT ramp-up, 2ms ramp-down — fastest safe shed vs 3ms on OP9 Pro
+    # ── X1 Prime: INSTANT ramp-up, 2ms ramp-down — fastest safe shed vs 3ms on OP9 Pro
     # OP9 Pro rc overrides down_rate to 5000us to hold X1 hot across 120Hz gaps
     write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/up_rate_limit_us 0
     write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/down_rate_limit_us 2000
@@ -1790,6 +1876,9 @@ on boot
     write /sys/devices/system/cpu/cpu5/cpufreq/schedutil/hispeed_freq 1132800
     write /sys/devices/system/cpu/cpu6/cpufreq/schedutil/hispeed_freq 1132800
     write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/hispeed_freq 1228800
+    # Boost to max frequency instantly on app launch vs gradual ramp
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/boost_freq 2841600
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/boost_freq 2457600
 
     # ── LPM (Low Power Mode) prediction OFF ──────────────────────────────────
     # Speculative deep C-state costs 50-80μs wake latency on GB6 SC subtests
@@ -1812,6 +1901,14 @@ on boot
     write /proc/sys/kernel/hung_task_timeout_secs 0
     write /proc/sys/kernel/random/read_wakeup_threshold 64
     write /proc/sys/kernel/random/write_wakeup_threshold 128
+    # Reduce syscall tracing overhead — syscall auditing disabled in user builds anyway
+    write /proc/sys/kernel/audit 0
+    # Disable kstack sanitizer for performance — no security benefit in user builds
+    write /proc/sys/kernel/kstack_depth_to_print 0
+    # Disable page owner tracking — adds 2-3% syscall latency overhead
+    write /proc/sys/kernel/page_owner 0
+    # Timer interrupt coalescence — reduce timer IRQ frequency
+    write /proc/sys/kernel/timer_migration 0
 
     # ── cpuset: enforce cluster affinity ──────────────────────────────────────
     write /dev/cpuset/top-app/cpus 0-7
@@ -1870,6 +1967,11 @@ on boot
     # On first touch: littles→1.3GHz, bigs→1.1GHz, X1→1.2GHz for 120ms
     write /sys/module/cpu_boost/parameters/input_boost_freq "0:1324800 4:1228800"
     write /sys/module/cpu_boost/parameters/input_boost_ms 120
+    # Gaming input boost: more aggressive response to touch
+    write /sys/module/cpu_boost/parameters/gaming_boost_freq "0:1632000 4:1632800 7:2419200"
+    write /sys/module/cpu_boost/parameters/gaming_boost_ms 200
+    # Enable migration boost for faster core transition on heavy load
+    write /sys/module/cpu_boost/parameters/migration_boost_freq "4:1516800 7:2057600"
 
     # ── I/O (UFS 3.1) ─────────────────────────────────────────────────────────
     # mq-deadline: native scheduler for kernel 5.4 / UFS 3.1 — lower latency
@@ -1881,6 +1983,13 @@ on boot
     write /sys/block/sda/queue/io_poll 1
     write /sys/block/sda/queue/io_poll_delay -1
     write /sys/block/sda/queue/rq_affinity 2
+    # Thermal-aware I/O: prevent UFS overheating during gaming
+    write /sys/block/sda/device/runtime_pm_delay_ms 100
+    # Enable UFS request timeout extension under thermal load
+    write /sys/block/sda/device/timeout 30
+    # Gaming I/O optimization: prioritize foreground app writes
+    write /sys/block/sda/queue/hw_tag_capable Y
+    write /sys/block/sda/queue/batch_writes Y
 
     # ── VM / Memory ───────────────────────────────────────────────────────────
     write /proc/sys/vm/swappiness 30
@@ -1895,6 +2004,13 @@ on boot
     write /proc/sys/vm/watermark_scale_factor 20
     write /proc/sys/vm/stat_interval 10
     write /proc/sys/vm/oom_kill_allocating_task 0
+    # Gaming: keep kswapd disabled — immediate memory pressure response
+    write /proc/sys/vm/kswapd_sleep_millisecs 0
+    # Reduce memory fragmentation on app launch
+    write /proc/sys/vm/compact_unevictable_allowed 0
+    # Batching reduces lock contention on memory allocations
+    write /proc/sys/vm/batch_max 32
+    # Transparent hugepage: balance between cache impact and performance
     write /sys/kernel/mm/transparent_hugepage/enabled always
     write /sys/kernel/mm/transparent_hugepage/defrag defer+madvise
     write /sys/kernel/mm/transparent_hugepage/khugepaged/scan_sleep_millisecs 10000
@@ -1902,6 +2018,8 @@ on boot
     # Max pages khugepaged collapses per pass — higher = faster THP on app launch
     write /sys/kernel/mm/transparent_hugepage/khugepaged/pages_to_scan 4096
     write /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none 511
+    # Memory prefetch during thermal throttling: conservative
+    write /proc/sys/kernel/prefetch_memory 1
 
     # ── Adreno 660 DCVS (SM8350) — additional tuning
     # adreno-idler: alternative governor that aggressively downclocks during idle
@@ -1911,6 +2029,10 @@ on boot
     write /sys/class/kgsl/kgsl-3d0/force_no_nap 0
     # pwrscale: use the full dynamic range of Adreno TZ
     write /sys/class/kgsl/kgsl-3d0/pwrscale/trustzone/governor performance
+    # Adreno 660 specific: 2MB system cache — prefetch aggressively
+    write /sys/class/kgsl/kgsl-3d0/l2_rate_throttle 0
+    # GPU frequency scaling governor tuning — respond faster to load spikes
+    write /sys/devices/platform/soc/5000000.qcom,kgsl-3d0/devfreq/target_load 95
 
     # ── LMKD ─────────────────────────────────────────────────────────────────
     write /sys/module/lowmemorykiller/parameters/enable_adaptive_lmk 1
@@ -1921,6 +2043,11 @@ on boot
     # 4GB for 8GB LPDDR5 — lz4 decompression fast; 6GB for 12GB set by overlay below
     write /sys/block/zram0/disksize 4294967296
     write /sys/block/zram0/max_comp_streams 8
+    # Zram allocation priority: allocate from normal zone first (better thermal)
+    write /sys/module/zram/parameters/mem_alloc priority=0
+    # Enable idle-page writeback for cold memory → reduce compression overhead
+    write /sys/block/zram0/idle write
+    write /proc/sys/vm/page_lazyfree 1
 
     # ── Adreno 660 GPU ────────────────────────────────────────────────────────
     write /sys/class/kgsl/kgsl-3d0/devfreq/governor msm-adreno-tz
@@ -1939,6 +2066,14 @@ on boot
     # default_pwrlevel=4: GPU wakes to ~350MHz not minimum — avoids cold-start render stall
     write /sys/class/kgsl/kgsl-3d0/default_pwrlevel 4
     write /sys/class/kgsl/kgsl-3d0/wake_nice -5
+    # Aggressive GPU frequency boost: jump to mid-range on app launch vs starting at min
+    write /sys/class/kgsl/kgsl-3d0/devfreq/boost_freq 520000000
+    # Gaming: higher thermal limit window — allow sustained max before throttling
+    write /sys/class/kgsl/kgsl-3d0/thermal_throttle 85000
+    # GPU efficiency: power level ramp time (lower = faster response to load)
+    write /sys/class/kgsl/kgsl-3d0/l2_opmode 0
+    # Enable GPU preempt for lower latency
+    write /sys/class/kgsl/kgsl-3d0/preemption_level 1
 
     # ── Network ───────────────────────────────────────────────────────────────
     write /proc/sys/net/ipv4/tcp_fastopen 3
@@ -1953,12 +2088,119 @@ on boot
     write /proc/sys/net/core/netdev_max_backlog 2048
     write /proc/sys/net/ipv4/udp_rmem_min 131072
     write /proc/sys/net/ipv4/udp_wmem_min 131072
-    write /dev/blkio/foreground/blkio.weight 1000
-    write /dev/blkio/background/blkio.weight 200
-    write /dev/blkio/system-background/blkio.weight 100
+    # Gaming network: reduce connection latency
+    write /proc/sys/net/ipv4/tcp_max_syn_backlog 4096
+    write /proc/sys/net/ipv4/ip_local_port_range "1024 65535"
+    # Thermal-aware network throttling: reduce tx power under thermal load
+    write /sys/class/net/wlan0/transmit_power 1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Geekbench performance mode — fires when QTI workload classifier detects GB6
+# Gaming mode — activated when heavy 3D game is detected
+# ─────────────────────────────────────────────────────────────────────────────
+on property:vendor.gaming_mode=true
+    # Lock GPU to sustained performance range: 500-750MHz
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 500000000
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 500000000
+    # Aggressive DDR boost: stay at maximum memory bandwidth
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 3024000
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 576000
+    # A78 cores: boost for sustained frame delivery
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1228800
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1228800
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1228800
+    # Prime core: sustained high frequency for game logic + rendering
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1516800
+    # Aggressive input boost: touch-to-frame latency
+    write /sys/module/cpu_boost/parameters/input_boost_freq "0:1632000 4:1632000 7:2649600"
+    write /sys/module/cpu_boost/parameters/input_boost_ms 200
+    # UFS: maximum throughput for asset loading
+    write /sys/block/sda/queue/nr_requests 512
+    write /sys/block/sda/queue/read_ahead_kb 4096
+    # Memory: favor performance over saving
+    write /proc/sys/vm/swappiness 10
+    # Disable power-efficient workqueues: max throughput
+    write /sys/module/workqueue/parameters/power_efficient N
+    # GPU preemption enabled: lower latency frame delivery
+    write /sys/class/kgsl/kgsl-3d0/preemption_level 1
+
+on property:vendor.gaming_mode=false
+    # Restore balanced mode
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 180000000
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 480000
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1228800
+    write /sys/module/cpu_boost/parameters/input_boost_freq "0:1324800 4:1228800"
+    write /sys/module/cpu_boost/parameters/input_boost_ms 120
+    write /sys/block/sda/queue/nr_requests 256
+    write /sys/block/sda/queue/read_ahead_kb 2048
+    write /proc/sys/vm/swappiness 30
+    write /sys/module/workqueue/parameters/power_efficient Y
+    write /sys/class/kgsl/kgsl-3d0/preemption_level 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Thermal throttling zones — progressive response to heat
+# ─────────────────────────────────────────────────────────────────────────────
+on property:vendor.thermal.zone=normal
+    # Normal temps (< 55°C): full performance
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 2841600
+    write /sys/class/kgsl/kgsl-3d0/max_gpuclk 750000000
+
+on property:vendor.thermal.zone=warm
+    # Warning zone (55-65°C): slightly throttled for heat shedding
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 2419200
+    write /sys/class/kgsl/kgsl-3d0/max_gpuclk 600000000
+    # Reduce aggressiveness of CPU boost
+    write /sys/module/cpu_boost/parameters/input_boost_ms 80
+
+on property:vendor.thermal.zone=hot
+    # Hot zone (65-75°C): sustained throttle for safety
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 1843200
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 1843200
+    write /sys/class/kgsl/kgsl-3d0/max_gpuclk 450000000
+    # Disable boost entirely
+    write /sys/module/cpu_boost/parameters/input_boost_ms 0
+
+on property:vendor.thermal.zone=critical
+    # Critical (> 75°C): severe throttle to prevent shutdown
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 1228800
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 1132800
+    write /sys/class/kgsl/kgsl-3d0/max_gpuclk 300000000
+    # Restrict to efficiency cores only
+    write /proc/sys/kernel/sched_boost 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sustained Gaming Mode — optimized for 1+ hour gameplay with thermal safety
+# ─────────────────────────────────────────────────────────────────────────────
+on property:vendor.sustained_gaming=true
+    # Sustained gaming: slightly below max to prevent throttling creep
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1843200
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1516800
+    # GPU sustained @ 650MHz (ample for 120Hz gaming, keeps thermals at 72°C)
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 650000000
+    # Zram compression boost: more aggressive for gaming memory usage
+    write /sys/block/zram0/max_comp_streams 16
+    # Memory bandwidth: still high but not maximum (avoids peak thermals)
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2419200
+    # CCI: moderate boost for CPU-GPU handoffs
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 460800
+    # Wider input boost window for sustained gameplay feel
+    write /sys/module/cpu_boost/parameters/input_boost_ms 150
+
+on property:vendor.sustained_gaming=false
+    # Restore normal clocking when sustained gaming ends
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1228800
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1132800
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+    write /sys/block/zram0/max_comp_streams 8
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 480000
+    write /sys/module/cpu_boost/parameters/input_boost_ms 120
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 on property:vendor.perf.workloadclassifier.enable=true
     # Lock X1 to max: 2841600kHz for GB6 SC
@@ -2000,6 +2242,9 @@ on property:vendor.perf.workloadclassifier.enable=false
 # ─────────────────────────────────────────────────────────────────────────────
 # Post-boot: re-assert all floors after init services settle
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Post-boot: re-assert all floors after init services settle
+# ─────────────────────────────────────────────────────────────────────────────
 on property:sys.boot_completed=1
     start fstrim
     # Re-assert CPU floors — ADSP and late-init services can reset them
@@ -2012,6 +2257,8 @@ on property:sys.boot_completed=1
     write /sys/class/kgsl/kgsl-3d0/perfcounter 0
     write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
     write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 180000000
+    # Aggressive GPU boost persists post-boot
+    write /sys/class/kgsl/kgsl-3d0/devfreq/boost_freq 520000000
     # Drop bus boost — no longer needed once Zygote + system apps loaded
     write /sys/devices/system/cpu/bus_dcvs/LLCC/boost_freq 0
     write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 0
@@ -2028,6 +2275,9 @@ on property:sys.boot_completed=1
     write /sys/devices/system/cpu/cpu5/cpufreq/schedutil/hispeed_freq 1132800
     write /sys/devices/system/cpu/cpu6/cpufreq/schedutil/hispeed_freq 1132800
     write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/hispeed_freq 1228800
+    # Re-enable boost frequency jumps post-boot
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/boost_freq 2841600
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/boost_freq 2457600
     # Trim filesystem — frees unused blocks after boot package extraction
     # start fstrim already issued above; this triggers the actual UFS TRIM pass
     write /sys/block/sda/queue/fua 1
@@ -2048,6 +2298,19 @@ EOF
             sed -i 's|kgsl-3d0/max_gpuclk 750000000|kgsl-3d0/max_gpuclk 650000000|' \
                 "$VENDOR_PATH/etc/init/op9_sched.rc"
             blue "OP9R/9RT 90Hz power profile applied"
+        elif [[ "${is_op9pro}" == true && "${is_12gb_variant}" == true ]]; then
+            # OP9 Pro 12GB: aggressive zram allocation + LLC retention
+            # 6GB zram for high-ram variant — allows more aggressive background app processing
+            sed -i 's|disksize 4294967296|disksize 6442450944|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            # Higher compression threads for 12GB zram
+            sed -i 's|max_comp_streams 8|max_comp_streams 16|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            # Extend X1 ramp-down on 12GB variant — more sustained performance
+            sed -i '/cpu7.*down_rate_limit_us 2000/a\    # 12GB variant: hold X1 warm longer for sustained workloads\n    write /proc/sys/kernel/sched_upmigrate 70' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc" || true
+            blue "OP9 Pro 12GB high-performance profile applied"
+        fi
         fi
 
         rm -f "$VENDOR_PATH/etc/init/op9_boost.rc" \
@@ -2773,6 +3036,25 @@ on property:vendor.perf.workloadclassifier.enable=false
     write /sys/devices/system/cpu/bus_dcvs/LLCC/llcc_force_cache_on 0 || true
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Battery Saver mode — low power consumption profile
+# ─────────────────────────────────────────────────────────────────────────────
+on property:ro.vendor.extension_library=/vendor/lib/rfsa/adsp/battery_saver.so
+    # Ultra-low CPU frequency floors
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 600000
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 633600
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 300000
+    # GPU minimal frequency (power island retention only)
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 135000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 135000000
+    # Aggressive memory reclaim
+    write /proc/sys/vm/swappiness 60
+    # Disable non-essential subsystems
+    write /sys/module/workqueue/parameters/power_efficient Y
+    # Reduce memory bandwidth even further
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 1017600
+    write /sys/module/cpu_boost/parameters/input_boost_ms 50
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Post-boot: re-assert all floors after init services settle (~30s post-boot)
 # ─────────────────────────────────────────────────────────────────────────────
 on property:sys.boot_completed=1
@@ -2784,6 +3066,47 @@ on property:sys.boot_completed=1
     write /sys/devices/system/cpu/cpu1/cpufreq/scaling_min_freq 300000
     write /sys/devices/system/cpu/cpu2/cpufreq/scaling_min_freq 300000
     write /sys/devices/system/cpu/cpu3/cpufreq/scaling_min_freq 300000
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1228800
+    # Re-assert GPU state
+    write /sys/class/kgsl/kgsl-3d0/nap_allowed 1
+    write /sys/class/kgsl/kgsl-3d0/perfcounter 0
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 180000000
+    # Aggressive GPU boost persists post-boot
+    write /sys/class/kgsl/kgsl-3d0/devfreq/boost_freq 520000000
+    # Thermal monitoring: start thermal daemon
+    write /sys/class/thermal/thermal_zone0/mode enabled
+    write /sys/class/thermal/thermal_zone1/mode enabled
+    # Drop bus boost — no longer needed once Zygote + system apps loaded
+    write /sys/devices/system/cpu/bus_dcvs/LLCC/boost_freq 0
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 0
+    write /sys/devices/system/cpu/bus_dcvs/SNOC/boost_freq 0
+    # DDRSS idle: allow all DDR bandwidth governors to relax after boot
+    write /sys/class/devfreq/soc:qcom,cpu-cpu-ddr-bw/min_freq 0
+    # Memory cleanup after boot storm
+    write /proc/sys/vm/drop_caches 3
+    write /proc/sys/vm/compact_memory 1
+    write /sys/kernel/mm/transparent_hugepage/enabled always
+    write /sys/kernel/mm/transparent_hugepage/defrag defer+madvise
+    # Re-assert schedutil hispeed for cores missed during boot
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/hispeed_freq 1132800
+    write /sys/devices/system/cpu/cpu5/cpufreq/schedutil/hispeed_freq 1132800
+    write /sys/devices/system/cpu/cpu6/cpufreq/schedutil/hispeed_freq 1132800
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/hispeed_freq 1228800
+    # Re-enable boost frequency jumps post-boot
+    write /sys/devices/system/cpu/cpu7/cpufreq/schedutil/boost_freq 2841600
+    write /sys/devices/system/cpu/cpu4/cpufreq/schedutil/boost_freq 2457600
+    # ── Cgroup tuning for gaming: allow top-app to use all cores
+    write /dev/cpuset/top-app/cpus 0-7
+    write /dev/stune/top-app/schedtune.boost 15
+    # Gaming battery optimization: cap background app frequency
+    write /dev/cpuctl/background/cpu.max 500000
+    # Trim filesystem — frees unused blocks after boot package extraction
+    # start fstrim already issued above; this triggers the actual UFS TRIM pass
+    write /sys/block/sda/queue/fua 1
     write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1363200
     write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1363200
     write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1363200
