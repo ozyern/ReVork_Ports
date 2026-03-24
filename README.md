@@ -1,14 +1,14 @@
 <div align="center">
 
 
-# ColorOS Porting Project
+# Project ReVork
 
 
 
 </div>
 
 ## Intro
-- ColorOS Porting Project
+- Project ReVork
 
 ## Supported Devices
 
