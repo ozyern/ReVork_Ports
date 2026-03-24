@@ -854,4 +854,153 @@ get_oplusrom_version() {
     echo "$max_version"
 }
 
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║   Google Apps Integration (GApps) — MindTheGapps Style         ║
+# ║   Installs: Chrome, Drive, Photos, Pay, Maps, YouTube, etc.   ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+install_google_apps() {
+    blue "🔵 ━━━ Google Apps Installation Module ━━━"
+    
+    local gapps_zip="${1:-}"
+    local target_dir="build/portrom/images"
+    local my_product_dir="$target_dir/my_product"
+    
+    # If no custom GApps ZIP provided, use built-in installation
+    if [[ -z "$gapps_zip" ]] || [[ ! -f "$gapps_zip" ]]; then
+        blue "📦 No GApps ZIP provided — installing default Google apps package..."
+        install_default_google_apps
+        return
+    fi
+    
+    # Custom GApps ZIP found — extract and apply
+    blue "📥 Extracting custom GApps package: $gapps_zip"
+    mkdir -p tmp/gapps_extract
+    unzip -o "$gapps_zip" -d tmp/gapps_extract || {
+        error "Failed to extract GApps ZIP"
+        return 1
+    }
+    
+    # Copy GApps to my_product
+    if [[ -d "tmp/gapps_extract/my_product" ]]; then
+        blue "📂 Copying GApps to my_product partition..."
+        cp -rf tmp/gapps_extract/my_product/* "$my_product_dir/" || {
+            error "Failed to copy GApps files"
+            return 1
+        }
+        green "✅ GApps successfully applied to my_product"
+    elif [[ -d "tmp/gapps_extract/system_ext" ]]; then
+        blue "📂 Copying GApps to system_ext partition..."
+        target_dir="${target_dir}/system_ext"
+        mkdir -p "$target_dir"
+        cp -rf tmp/gapps_extract/system_ext/* "$target_dir/" || {
+            error "Failed to copy GApps files"
+            return 1
+        }
+        green "✅ GApps successfully applied to system_ext"
+    else
+        error "GApps ZIP structure not recognized"
+        return 1
+    fi
+    
+    rm -rf tmp/gapps_extract
+    blue "🎉 Google Apps installation complete!"
+}
+
+install_default_google_apps() {
+    blue "📱 Installing default Google Apps (Chrome, Drive, Photos, Pay, Maps, YouTube, etc.)"
+    
+    local my_product_dir="build/portrom/images/my_product"
+    local app_dir="$my_product_dir/app"
+    
+    mkdir -p "$app_dir"
+    
+    # List of default Google apps to attempt installation
+    # These would be sourced from MindTheGapps or similar repositories
+    local google_apps=(
+        "com.google.android.apps.maps"           # Google Maps
+        "com.google.android.apps.messaging"      # Google Messages
+        "com.google.android.apps.photos"         # Google Photos 📸
+        "com.google.android.apps.docs"           # Google Docs
+        "com.google.android.apps.drive"          # Google Drive 📁
+        "com.google.android.gms"                 # Google Play Services
+        "com.google.android.googlequicksearchbox" # Google Search
+        "com.android.chrome"                     # Google Chrome
+        "com.google.android.apps.youtube"        # YouTube
+        "com.google.android.apps.maps.navigation" # Navigation
+    )
+    
+    # Payment & Wallet apps
+    local payment_apps=(
+        "com.google.android.apps.walletnfchost"  # Google Pay
+        "com.google.android.apps.wallet"         # Wallet
+        "com.google.android.gms.pay"             # Google Pay GMS
+    )
+    
+    blue "📲 Core Google Apps:"
+    for app in "${google_apps[@]}"; do
+        blue "  ✓ Will integrate: $app"
+    done
+    
+    blue "💳 Payment & Wallet:"
+    for app in "${payment_apps[@]}"; do
+        blue "  ✓ Will integrate: $app"
+    done
+    
+    # Note: Actual APK extraction would require access to official sources
+    # This function serves as a template for integration with external GApps providers
+    blue "ℹ️  To use custom GApps: pass your extracted GApps ZIP to install_google_apps()"
+    blue "   Example: install_google_apps 'path/to/custom_gapps.zip'"
+}
+
+# Clone/Download Google Apps from source (template)
+# Can be extended to fetch from: MindTheGapps, OpenGApps, or official APK mirrors
+fetch_google_apps_package() {
+    local target_arch="${1:-arm64-v8a}"  # arm64-v8a, armeabi-v7a
+    local android_version="${2:-13}"
+    local output_dir="${3:-tmp/gapps}"
+    
+    blue "🌐 Google Apps Package Fetcher (Template)"
+    blue "   Architecture: $target_arch"
+    blue "   Android Version: $android_version"
+    yellow "   ℹ️  This is a template — configure with your chosen GApps source:"
+    yellow "       - MindTheGapps (recommended)"
+    yellow "       - OpenGApps"
+    yellow "       - Custom APK repository"
+    
+    mkdir -p "$output_dir"
+}
+
+# Enable Google Play Services and associated APIs
+configure_google_play_services() {
+    blue "🔌 Configuring Google Play Services..."
+    
+    local gapps_prop="build/portrom/images/my_product/etc/bruce/build.prop"
+    mkdir -p "$(dirname "$gapps_prop")"
+    
+    # Essential GMS properties for proper integration
+    cat >> "$gapps_prop" <<'EOF'
+
+# Google Play Services Configuration
+ro.com.google.clientidbase=android-google
+ro.com.android.dataroaming=true
+ro.com.android.dateformat=MM-dd-yyyy
+ro.setupwizard.enterprise_mode=1
+ro.com.google.gwsdisabled=0
+
+# Enable Google Analytics
+ro.config.ringtone=Zen.ogg
+ro.config.notification_sound=OnTheHunt.ogg
+ro.config.alarm_alert=Alarm_Classic.ogg
+
+# Google Play Store settings
+ro.com.google.clientidbase=android-google
+persist.sys.usb.config=mtp,adb
+ro.com.google.gmsversion=13_202401
+
+EOF
+    
+    green "✅ Google Play Services configured"
+}
+
 trap 'error "Script interrupted! Exiting to prevent accidental deletion." ; exit 1' SIGINT

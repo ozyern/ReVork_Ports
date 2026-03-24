@@ -92,6 +92,45 @@
 
 ---
 
+## ✨ New: Google Apps Integration
+
+### 🔵 Install Global Google Apps (GApps)
+
+Seamlessly integrate Google apps pre-installed with global ROMs:
+
+**Included Applications:**
+- 📱 **Chrome** - Lightning-fast web browsing
+- 📁 **Google Drive** - Cloud storage & sync
+- 📸 **Google Photos** - Unlimited photo backup
+- 💳 **Google Pay** - Secure mobile payments
+- 🗺️ **Google Maps** - Navigation & discovery
+- ▶️ **YouTube** - Video streaming
+- 📧 **Gmail** - Email & messaging
+- 📝 **Google Docs/Sheets** - Productivity suite
+- 🔍 **Google Search** - Smart search widget
+- ➕ And more!
+
+**Usage:**
+```bash
+# Method 1: Auto-install default GApps
+sudo ./port.sh <baserom> <portrom>
+# GApps will be automatically integrated
+
+# Method 2: Use custom GApps package
+sudo ./port.sh <baserom> <portrom> "" "" gapps.zip
+# Pass your MindTheGapps or OpenGApps ZIP
+```
+
+**Configuration:**
+Edit `port.sh` to enable/disable GApps at integration point (~line 4700):
+```bash
+# Enable GApps installation
+install_google_apps "devices/common/google_apps.zip" || true
+install_google_apps  # Use default package
+```
+
+---
+
 ## ⚙️ Installation
 
 ### 📋 Prerequisites

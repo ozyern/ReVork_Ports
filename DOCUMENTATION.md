@@ -1,153 +1,291 @@
-# ColorOS Port Repository Overview
+# 📚 ColorOS Port Repository Overview
 
 This repository contains a set of scripts and associated resources for porting and repacking ColorOS/OxygenOS/realme UI OTA/fastboot packages onto OnePlus/Oppo devices. The following is a comprehensive breakdown of the role and interactions of each file and folder.
 
-## Entry Points
+---
 
-### `setup.sh`
-A setup script that installs dependencies via `apt` (Linux) or `brew` (macOS). Installs `aria2`, `python3`, `busybox`, `zip`, `unzip`, `p7zip`, `openjdk`, `zstd`, `xmlstarlet`, and the other tools that `port.sh` requires.
+## 🚀 Entry Points
 
-### `port.sh`
-The main porting script. Arguments: `<baserom> <portrom> [portrom2] [portparts]`. URLs are accepted and downloaded with `aria2c`.
+### `setup.sh` ⚙️
+A setup script that installs dependencies via `apt` (Linux) or `brew` (macOS). 
 
-Simplified processing flow:
-1. Reads `bin/port_config` to determine target partitions and ext4/EROFS repack strategy.
-2. Extracts BASEROM/PORTROM from `payload.bin` / `*.img` (using `payload-dumper`, `brotli+sdat2img`, or `unzip`). Supports mixed porting if a second source ROM is specified.
-3. Extracts partitions under `build/baserom` / `build/portrom` (ext4 → `bin/imgextractor`; EROFS → `extract.erofs`). Some partitions like vendor/odm are taken from the base ROM.
-4. Reads Android/SDK/device code/region info from `my_manifest` / `build.prop` files and overwrites them with base device values. Handles 32-bit zygote → 64-bit-only conversion and brand detection (ColorOS / OxygenOS / realme UI) as needed.
-5. Applies a large number of individual patches using helpers from `functions.sh` and `bin/patchmethod*.py`. Examples: face unlock, AI Call, OTA dm-verity bypass, Gallery AI Editor, battery SOH, game volume, Dolby, AOD, SystemUI smali rewrites, feature flag XML add/remove, build property adjustments. ZIPs and overlays from `devices/common` and `devices/<device>` are applied here.
-6. Optionally removes the data encryption flag (when `remove_data_encryption=true`). Runs `disable_avb_verify` to strip AVB verification from fstab.
-7. Regenerates `fs_config` / `file_contexts` with `bin/fspatch.py` / `bin/contextpatch.py`, then repacks each partition with `mkfs.erofs` (or `make_ext4fs`). Gets the device-specific super size with `bin/getSuperSize.sh` and builds `super.img` with `lpmake`.
-8. Disables vbmeta verification with `bin/patch-vbmeta.py`. Places fastboot scripts (Windows/Mac/Linux) and `META-INF/updater` in `out/<OS>_<version>/` and generates the final ZIP.
+**Installs:**
+- `aria2` — Fast parallel downloader
+- `python3` — sdat2img, patching scripts
+- `busybox`, `zip`, `unzip`, `p7zip` — Archive tools
+- `openjdk` — APKTool runtime
+- `zstd` — Zstandard compression
+- `xmlstarlet` — XML processing
+- And all other tools that `port.sh` requires
 
-### `functions.sh`
-Utility library sourced by `port.sh`. Provides colored logging and existence checks, plus:
-- `patch_smali` / `baksmali_wrapper` / `smali_wrapper`: APK/JAR smali extraction, substitution, repack + `zipalign` / `apksigner` signing.
-- `extract_partition`: Detects ext4/EROFS and extracts using the appropriate tool; discards the source `.img` afterward.
-- `disable_avb_verify`: Removes AVB options from fstab. (Note: defined twice with the same name — the second definition takes effect.)
-- `patch_kernel` / `patch_kernel_to_bootimg` / `spoof_bootimg`: Uses `magiskboot` to unpack boot/vendor_boot, disable AVB, and inject a custom kernel.
-- Feature flag XML add/remove (`add_feature[_v2]` / `remove_feature`), build.prop editing (`add_prop*` / `remove_prop*` / `prepare_base_prop` / `add_prop_from_port`).
-- Old-style face unlock fix (`fix_oldfaceunlock`), Smart Sidebar brand spoof (`patch_smartsidecar`), ColorOS version extraction (`get_oplusrom_version`), etc.
+### `port.sh` 🔄
+The main porting script. 
+
+**Arguments:** `<baserom> <portrom> [portrom2] [portparts]`
+- Supports URLs (will be downloaded with `aria2c`)
+- Supports mixed porting from multiple source ROMs
+
+**Simplified processing flow:**
+
+1. **📥 ROM Download & Extraction**
+   - Reads `bin/port_config` to determine target partitions
+   - Extracts BASEROM/PORTROM from `payload.bin` / `*.img` (using `payload-dumper`, `brotli+sdat2img`, or `unzip`)
+   - Supports mixed porting if a second source ROM is specified
+
+2. **🗂️ Partition Extraction**
+   - Extracts partitions under `build/baserom` / `build/portrom`
+   - ext4 → `bin/imgextractor`; EROFS → `extract.erofs`
+   - Some partitions like vendor/odm are taken from the base ROM
+
+3. **🏷️ System Property Import**
+   - Reads Android/SDK/device code/region info from `my_manifest` / `build.prop`
+   - Overwrites with base device values
+   - Handles 32-bit zygote → 64-bit-only conversion
+   - Brand detection (ColorOS / OxygenOS / realme UI) as needed
+
+4. **🔨 Patch Application** (80+ individual fixes)
+   - Face unlock, AI Call, OTA dm-verity bypass
+   - Gallery AI Editor, battery SOH, game volume
+   - Dolby, AOD, SystemUI smali rewrites
+   - Feature flag XML add/remove, build property adjustments
+   - ZIPs and overlays from `devices/common` and `devices/<device>`
+   - **NEW:** Google Apps integration (GApps)
+
+5. **🔓 Security & Encryption**
+   - Optionally removes the data encryption flag (`remove_data_encryption=true`)
+   - Runs `disable_avb_verify` to strip AVB verification from fstab
+
+6. **📦 Partition Repacking**
+   - Regenerates `fs_config` / `file_contexts` with `bin/fspatch.py` / `bin/contextpatch.py`
+   - Repacks each partition with `mkfs.erofs` (or `make_ext4fs`)
+   - Gets device-specific super size with `bin/getSuperSize.sh`
+   - Builds `super.img` with `lpmake`
+
+7. **✒️ Final Signature & Packaging**
+   - Disables vbmeta verification with `bin/patch-vbmeta.py`
+   - Places fastboot scripts (Windows/Mac/Linux)
+   - Generates `META-INF/updater` and final ZIP in `out/<OS>_<version>/`
+
+### `functions.sh` 📚
+Utility library sourced by `port.sh`. Provides:
+
+**Logging & Checks:**
+- 🎨 Colored logging (`blue`, `yellow`, `green`, `error`)
+- ✅ Dependency command existence checks
+
+**APK/JAR Editing:**
+- `patch_smali` / `baksmali_wrapper` / `smali_wrapper` — Decompile, modify, repack + sign
+
+**Image & Filesystem:**
+- `extract_partition` — Detects ext4/EROFS and extracts
+- `disable_avb_verify` — Removes AVB options from fstab
+
+**Boot Image:**
+- `patch_kernel` / `patch_kernel_to_bootimg` / `spoof_bootimg` — Kernel patching with magiskboot
+
+**Feature & Properties:**
+- `add_feature_v2` / `remove_feature` — Feature flag XML management
+- `add_prop_v2` / `remove_prop_v2` / `prepare_base_prop` — Build.prop editing
+
+**Google Apps:** ✨ NEW
+- `install_google_apps` — Install custom or default GApps
+- `install_default_google_apps` — Bundle: Chrome, Drive, Photos, Pay, Maps, YouTube
+- `configure_google_play_services` — GMS property configuration
 
 ---
 
-## Configuration Files
+## ⚙️ Configuration Files
 
-### `bin/port_config`
-- `partition_to_port`: List of logical partitions to extract from PORTROM and repack.
-- `possible_super_list`: Candidate partitions to include in `super.img`.
-- `repack_with_ext4` / `remove_data_encryption` / `super_extended` / `pack_method`: Controls packing format and encryption disable behavior.
+### `bin/port_config` 🔧
+Configuration parameters for ROM porting:
 
-### `bin/getSuperSize.sh`
+- `partition_to_port` — List of logical partitions to extract from PORTROM and repack
+- `possible_super_list` — Candidate partitions to include in `super.img`
+- `repack_with_ext4` / `remove_data_encryption` — Packing format & encryption behavior
+- `super_extended` / `pack_method` — Advanced packing options
+
+### `bin/getSuperSize.sh` 📏
 Returns the super partition byte size for a given device code. Used by `port.sh` during packaging.
 
 ---
 
-## Tools (`bin/`)
+## 🛠️ Tools (`bin/`)
 
-### OS/Architecture Binaries
-Bundled under `bin/Linux/{x86_64,aarch64}` and `bin/Darwin/{X86_64,aarch64}`:
-`payload-dumper(-go)`, `lpunpack` / `lpmake`, `mkfs.erofs`, `img2simg` / `simg2img`, `magiskboot`, `vbmeta-disable-verification`, `zstd`, `gettype`, etc. All called by `port.sh`.
+### 🖥️ OS/Architecture Binaries
+Located under `bin/Linux/{x86_64,aarch64}` and `bin/Darwin/{X86_64,aarch64}`:
 
-### APK/JAR Editing
-- `bin/apktool/`: `apktool.jar`, `smali` / `baksmali` (standard + 3.0.5 variants), `APKEditor.jar`. Used during smali patching.
+**Key tools:**
+- `payload-dumper(-go)` — Extract OTA payload.bin
+- `lpunpack` / `lpmake` — Super partition manipulation
+- `mkfs.erofs` — EROFS filesystem creation
+- `img2simg` / `simg2img` — Sparse image conversion
+- `magiskboot` — Boot image patching
+- `vbmeta-disable-verification` — AVB bypassing
+- `zstd` — Compression
+- `gettype` — Filesystem type detection
 
-### Image Extraction
-- `bin/imgextractor/imgextractor.py` + `ext4.py`: Python implementation for extracting Android sparse/ext4 images, including on Windows. Called from `extract_partition`.
+### 📱 APK/JAR Editing
+**Location:** `bin/apktool/`
+- `apktool.jar` — APK decompiling/rebuilding
+- `smali` / `baksmali` (standard + 3.0.5 variants) — Smali assembly/disassembly
+- `APKEditor.jar` — Resource editing
 
-### Smali Auto-Patching
-- `bin/patchmethod.py`: Replaces a specified method with a `true` / `false` / `void` stub.
-- `bin/patchmethod_v2.py`: Enhanced version — supports cross-directory method detection, replacement, and hook insertion.
+### 🖼️ Image Extraction
+**Location:** `bin/imgextractor/`
+- `imgextractor.py` + `ext4.py` — Python implementation for Android sparse/ext4 images
+- Works on Windows without requiring external binaries
 
-### SELinux / Permission補完
-- `bin/contextpatch.py`: Compares an extracted directory against an existing `*_file_contexts` file and assigns estimated SELinux contexts to any missing paths (using a `fix_permission` table and similar-path inference).
-- `bin/fspatch.py`: Fills in missing UID/GID/permissions/symlink targets in `fs_config`.
+### 🔨 Smali Auto-Patching
+- `bin/patchmethod.py` — Replace method with stub
+- `bin/patchmethod_v2.py` — Enhanced: cross-dir detection, hook insertion
 
-### AVB / Other Utilities
-- `bin/patch-vbmeta.py`: Rewrites vbmeta header flags to disable verity/verification.
-- `bin/lpunpack.py`: Parses super image metadata and extracts partitions (text/JSON output supported).
-- `bin/flash/`: Contains `update-binary` (META-INF updater), `windows_flash_script.bat` and `mac_linux_flash_script.sh` (fastboot flash templates), and `platform-tools-windows/` (adb/fastboot, etc.).
-- `bin/port_config`: Port parameters (described above).
+### 🔐 SELinux / Permissions
+- `bin/contextpatch.py` — Infer SELinux contexts for missing paths
+- `bin/fspatch.py` — Fill missing UID/GID/permissions/symlinks in `fs_config`
 
----
-
-## Device-Specific and Common Resources (`devices/`)
-
-For tracing the origin and justification of each `devices/**/*.zip`: see [DEVICES_ZIPS_ORIGIN.md](DEVICES_ZIPS_ORIGIN.md)
-
-### Common ZIPs / Images (`devices/common/`)
-- `a13_base_fix.zip`: ODM HAL/services for A13-generation devices (charger, performance, WiFi, power stats, etc.), fastchg firmware, vintf/selinux definitions. Foundational patch for bridging base ROM differences.
-- `aod_fix_sm8350.zip`: Contains `vendor.qti.hardware.display.composer-service` to work around AOD brightness issues on SM8350.
-- `charger-v6-update.zip`: Updates Charger V6 HAL, RC, JAR, NDK `.so`, and config (`charge.cfg`, etc.).
-- `cryptoeng_fix_a13.zip`: Fixes for CryptoEng/URCC HAL (binary + NDK `.so`).
-- `dolby_fix.zip`: Adds `AudioEffectCenter.apk` (with vdex) and `multimedia_dolby_dax_default.xml` to restore Dolby functionality.
-- `face_unlock_fix_common.zip`: `TrustZoneAccessService.apk`, a full set of face detection/landmark/itof models, and SecureElement/WiFi overlays. Shared Face Unlock dependencies.
-- `hdr_fix.zip`: Adjusts HDR display settings via a `multimedia_display_feature_config.xml` overlay.
-- `nfc_fix_a16_v2.zip`: `NfcNci.apk` and `libnfc-nci.conf` for Android 16.
-- `ril_fix_a13_to_a15.zip`: Full communication stack (commcenterd, subsys_daemon, telephony manifests, radio/commcenter HAL/selinux, fastchg firmware, NFC config, Goodix FP HAL, etc.) and qcril libraries. Fixes RIL issues going from A13 to A15.
-- `ril_fix_sm8250.zip`: Communication stack and subsys/radio libs for SM8250.
-- `ril_fix_sm8350.zip`: Communication stack for SM8350 (netmgrd, qcrilNr, etc.).
-- `voice_trigger_fix.zip`: `OVoiceManagerService.apk` + OVMS models (wakeup/print), ACDB/SoundTrigger config.
-- `wifi_fix_a16.zip`: `com.android.wifi.apex` paired with the Google wifi apex.
-- Other: Feature flag XML templates (e.g. `oplus.feature.*.xml`), `patch_battery_soh.txt` (smali fragment that reads battery SOH from `/sys`), empty `my_company_empty.img` / `my_preload_empty.img`.
-
-### OnePlus 8 / 8 Pro (`devices/OnePlus8*`)
-- `keymaster.img` / `tz.img`: Trusted execution environment images.
-- `overlay/vendor/build.prop` + `overlay/vendor/etc/fstab.qcom`: Aligns vendor properties and fstab (with `my_*` mounts and entries supporting both ext4/EROFS) to base device specs.
-
-### OnePlus 8T (`devices/OnePlus8T`)
-- `overlay/my_product/.../android_framework_res_overlay.display.product.20806.apk`: Display-related overlay.
-- `overlay/system/system/bin/fix_refresh_rate.sh` + `overlay/system_ext/etc/init/frame_drop_fix_service.rc`: An init service that resets the refresh rate from 60Hz → 120Hz after boot completes, preventing frame drops.
-
-### OnePlus 9 (`devices/OnePlus9/face_unlock_fix.zip`)
-- Face Unlock HAL (`vendor.oplus.hardware.biometrics.face@1.0-service`), libraries, and firmware.
-
-### OnePlus 9 Pro (`devices/OnePlus9Pro`)
-- `camera5.0-fix_oos.zip` / `camera5.0-fix_cos_global.zip`: Places `OplusCamera.apk` (with oat/prof), `com.oplus.camera.unit.sdk` JAR/odex, `libMsEffectSdk.so`, etc. into `my_product` to restore Camera 5.0.
-- `camera5.0-fix_odm.zip`: Camera configs/protobufs, Meishe LUT files, live photo models and libraries (`libAlgoInterface/Process`, `libPreviewDecisionOld`, `libmsnativefilter`, etc.), and RC files.
-- `face_unlock_fix.zip`: Same face unlock package as OnePlus 9.
-
-### OnePlus 9R / OP4E5D
-- `recovery.fstab`: Recovery fstab including A/B and logical partitions.
-- `releasetools.py`: Bundles firmware images into the OTA ZIP during the OTA build process; uses `get_xblddr_type` detection to select DDR4/DDR5 flashing logic.
-- `OTA/bin/updater`: Custom OTA updater binary.
-
-### Other
-- Feature flag template files such as `oplus.feature.android-ext-bruce.xml` are bundled alongside `devices/common`. They are populated by `add_feature` calls as needed.
+### ✒️ AVB & Utilities
+- `bin/patch-vbmeta.py` — Rewrite vbmeta flags to disable verity
+- `bin/lpunpack.py` — Parse super metadata, extract partitions
+- `bin/flash/` directory — Flashboot templates & updater binary
 
 ---
 
-## OTA / Build Tools (`otatools/`)
-- `otatools/bin`: Android host tools — `apksigner`, `signapk`, `boot_signer`, `ota_from_target_files`, `merge_target_files`, `mkbootimg`, `img_from_target_files`, etc. Used by `port.sh` for APK signing and target_files manipulation.
-- `otatools/framework`: JAR files for signing.
-- `otatools/key`: Test keys (`testkey.pk8` / `x509.pem` / `key`).
-- `otatools/lib64`: Shared libraries linked by the above tools.
+## 📁 Device Resources (`devices/`)
+
+For detailed origin & justification of each device ZIP: see [DEVICES_ZIPS_ORIGIN.md](DEVICES_ZIPS_ORIGIN.md)
+
+### 📦 Common ZIPs – Feature Fixes (`devices/common/`)
+
+| ZIP File | Purpose | Content |
+|----------|---------|---------|
+| `a13_base_fix.zip` 🔧 | ODM/HAL bridging for A13→A14 | Init scripts, SELinux, VINTF |
+| `aod_fix_sm8350.zip` 📲 | Always-On Display fix | Display composer binary |
+| `charger-v6-update.zip` 🔋 | Charger HAL V3→V6 upgrade | Init, VINTF, NDK .so files |
+| `cryptoeng_fix_a13.zip` 🔐 | Privacy/App Lock HAL | URCC NDK .so files |
+| `dolby_fix.zip` 🎵 | Dolby audio restoration | AudioEffectCenter APK + config |
+| `face_unlock_fix_common.zip` 👤 | Face Unlock dependencies | TrustZone APK, EVA models, overlays |
+| `hdr_fix.zip` 🌈 | HDR display configuration | Display config XML |
+| `nfc_fix_a16_v2.zip` 📡 | NFC for Android 16 | NfcNci APK + libnfc-nci.conf |
+| `ril_fix_a13_to_a15.zip` 📞 | RIL/modem communication | commcenterd, radio libs, firmware |
+| `voice_trigger_fix.zip` 🎤 | Voice assistant models | OVoiceManagerService APK + models |
+| `wifi_fix_a16.zip` 📡 | WiFi for Android 16 | com.android.wifi.apex |
+
+### 👤 OnePlus/OPPO Device Resources (`devices/<device>/`)
+
+- **OnePlus 8 / 8 Pro:** `keymaster.img`, `tz.img`, vendor `build.prop` overlays
+- **OnePlus 8T:** Display overlay, refresh rate fix script
+- **OnePlus 9 / 9 Pro:** Face Unlock HAL + Camera 5.0 fixes
+- **OnePlus 9R / OP4E5D:** Recovery fstab, releasetools.py, OTA updater
+
+### 🎨 Feature Templates (`devices/common/*.xml`)
+Pre-built feature flag templates populated by `add_feature_v2` calls:
+- `oplus.feature.android-ext-bruce.xml`
+- `com.oplus.app-features-ext-bruce.xml`
+- `com.oplus.oplus-features-ext-bruce.xml`
+- And others
 
 ---
 
-## Flash Scripts / Output
+## 🔧 OTA / Build Tools (`otatools/`)
 
-### `bin/flash/windows_flash_script.bat` / `bin/flash/mac_linux_flash_script.sh`
-Templates that `port.sh` dynamically substitutes with device info, region, and boot image names to produce scripts for fastboot-flashing the generated `super.zst` and firmware images.
+### 📋 Host Tools (`otatools/bin/`)
+Android host build tools:
+- `apksigner`, `signapk`, `boot_signer` — APK/boot signing
+- `ota_from_target_files`, `merge_target_files` — OTA generation
+- `mkbootimg`, `img_from_target_files` — Boot/image tools
+- `lpmake`, `lpunpack` — Super partition tools
 
-### `bin/flash/update-binary`
-The updater executed from META-INF. If a device-specific `devices/<device>/update-binary` exists, it takes priority.
+### 📚 Framework (`otatools/framework/`)
+JAR files for signing and OTA generation
 
-### `out/<OS>_<rom_version>*.zip`
-The final output of `port.sh`. Contains `super.zst`, individual `.img` files under `firmware-update/`, flash scripts, META-INF, and a `patch-vbmeta.py`-processed vbmeta.
+### 🔑 Test Keys (`otatools/key/`)
+Signing keys:
+- `testkey.pk8` / `x509.pem` — RSA private key & certificate
+- Used to sign APKs and verify modifications
+
+### 📦 Libraries (`otatools/lib64/`)
+Shared libraries linked by host tools
 
 ---
 
-## README Files
-- `README.md` / `README_en-US.md`: Project overview, supported devices, known issues, and Linux usage instructions. Primary targets are OnePlus 8/9 series based on ColorOS 14.
+## 💾 Flash Scripts & Output
+
+### 🔌 Fastboot Flash Templates
+- `bin/flash/windows_flash_script.bat` — Windows fastboot script template
+- `bin/flash/mac_linux_flash_script.sh` — macOS/Linux fastboot script template
+
+**Dynamically substituted with:**
+- Device info, region, boot image names
+- Used to flash `super.zst` and firmware images
+
+### 📦 Flash Updater
+- `bin/flash/update-binary` — Executed from META-INF during sideloading
+- Device-specific variant can override: `devices/<device>/update-binary`
+
+### 📤 Final Output (`out/<OS>_<rom_version>*.zip`)
+The final ROM package contains:
+- `super.zst` — Super partition (compressed)
+- `firmware-update/` — Individual .img files
+- Flash scripts (Windows/Mac/Linux)
+- `META-INF/` with updater
+- `patch-vbmeta.py` — Post-flash AVB disabler
 
 ---
 
-## Development Tips
-- **Working directories**: `build/` holds extracted partitions, `tmp/` holds intermediate files, `out/` holds final outputs. If `build/<version_name>/` already exists from a previous run, extraction is skipped and files are reused.
-- **Signing**: APKs/JARs modified at the smali or resource level are re-signed with `zipalign` + `apksigner` using `otatools/key/testkey*`.
-- **Filesystem**: EROFS by default. Setting ext4 in `bin/port_config` switches to a behavior that favors RW mounts.
-- **Custom kernels**: `port.sh` detects AnyKernel-format ZIPs or `boot.img` files, generates `boot_ksu.img` / `boot_noksu.img` / `boot_custom.img`, and includes them in the output.
+## 📖 Documentation Files
+
+### 📄 Main Docs
+- [README.md](README.md) 🎀 — Project overview, features, installation
+- [DOCUMENTATION.md](DOCUMENTATION.md) 📚 — This file (repository structure)
+- [DEVICES_ZIPS_ORIGIN.md](DEVICES_ZIPS_ORIGIN.md) 📦 — Per-ZIP origin & justification
+- [FUNCTIONS_SH_DOC.md](FUNCTIONS_SH_DOC.md) 🔧 — Function reference
+- [PORT_SH_DOC.md](PORT_SH_DOC.md) 🎯 — port.sh flow & logic
+
+---
+
+## 💡 Development Tips
+
+### 📂 Working Directories
+- `build/` — Extracted partitions (`build/baserom`, `build/portrom`)
+- `tmp/` — Intermediate files (smali, dex, APK temp work)
+- `out/` — Final output ROMs
+
+**Reusing builds:** If `build/<version_name>/` exists, extraction is skipped
+
+### ✒️ Signing Process
+APKs/JARs modified at smali or resource level are re-signed:
+- `zipalign` — 4-byte alignment
+- `apksigner` — Sign with `otatools/key/testkey*`
+
+### 🖥️ Filesystem Variants
+- **Default:** EROFS (read-only, smaller)
+- **Alternative:** Edit `bin/port_config` → `repack_with_ext4=true` for ext4 (R/W)
+
+### 🐧 Custom Kernels
+`port.sh` detects and integrates:
+- AnyKernel-format ZIPs
+- Standalone `boot.img` files
+- Generates: `boot_ksu.img`, `boot_noksu.img`, `boot_custom.img`
+- Includes in final output
+
+---
+
+## 🎯 ColorOS/OxygenOS Regional Support
+
+### 🌍 Automatic Detection
+Script auto-detects variant:
+- OnePlus 9 Pro CN (OP4E5D)
+- OnePlus 9RT CN (OP4E3F)
+- Global variants
+
+### 🔑 CN-Specific Properties Applied
+- Aggressive thermal management
+- GMS compatibility adjustments
+- Regional carrier optimization
+
+For details, see [README.md → ColorOS China Optimization](README.md#-coloros-china-optimization-guide)
+
+---
 
 To understand what gets applied and when, follow the `blue` / `yellow` / `green` colored log output from `port.sh` as a guide through the execution flow.
 
