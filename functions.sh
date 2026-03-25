@@ -1159,11 +1159,17 @@ is_coloros_cn() {
     local build_display=$(grep "^ro.build.display.id=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
     local rom_type=$(grep "^ro.rom.type=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
     
-    # Check if it's CN variant
-    if [[ "$rom_zone" == "cn" ]] || [[ "$fingerprint" == *"CN"* ]] || [[ "$build_display" == *"CN"* ]] || [[ "$rom_type" == *"ColorOS"* ]]; then
-        # Further check: if it already has Google apps, it's global (unlikely for CN)
+    # Check if it's CN variant.
+    # Match on explicit cn zone OR CN marker in fingerprint/display ID.
+    # Do NOT match on ro.rom.type containing "ColorOS" — Global ROMs also carry that.
+    local is_cn=false
+    if [[ "$rom_zone" == "cn" ]] || [[ "$fingerprint" == *"CN"* ]] || [[ "$build_display" == *"CN"* ]]; then
+        is_cn=true
+    fi
+    if [[ "$is_cn" == true ]]; then
+        # Final guard: if ro.com.google.clientidbase is already set, GApps exist — skip
         if ! grep -q "ro.com.google.clientidbase" "$build_prop_path" 2>/dev/null; then
-            return 0  # Yes, it's COS CN (no Google apps)
+            return 0  # Confirmed COS CN with no GApps
         fi
     fi
     
@@ -1308,13 +1314,12 @@ install_google_apps() {
 download_mindthegapps() {
     local android_version="${1:-13}"
     local output_file="${2:-tmp/MindTheGapps.zip}"
-    
+
     blue "🌐 MindTheGapps Auto-Downloader"
-    blue ""
     blue "📥 Downloading MindTheGapps for Android $android_version (arm64)..."
-    
+
     mkdir -p "$(dirname "$output_file")"
-    
+
     # Validate Android version
     case "$android_version" in
         13|14|15|16) ;;
@@ -1324,62 +1329,80 @@ download_mindthegapps() {
             return 1
             ;;
     esac
-    
-    # Fetch latest release from GitHub API for the specified Android version
+
+    # MindTheGapps uses per-version repos: MindTheGapps/16.0.0-arm64, etc.
+    # Each repo has its own releases page — not a single monorepo.
     local github_repo="MindTheGapps/${android_version}.0.0-arm64"
     local api_url="https://api.github.com/repos/${github_repo}/releases/latest"
-    
-    blue "   Fetching latest release info from GitHub..."
-    
-    # Get the download URL from GitHub's API
+
+    blue "   Fetching latest release info: ${api_url}"
+
+    # Fetch release JSON and extract the .zip asset download URL.
+    # Filter to *arm64*.zip to avoid picking up checksums or wrong arch assets.
     local download_url=""
-    if command -v curl &> /dev/null; then
-        download_url=$(curl -s "$api_url" | grep -o '"browser_download_url": *"[^"]*"' | head -1 | cut -d'"' -f4)
-    elif command -v wget &> /dev/null; then
-        download_url=$(wget -q -O - "$api_url" | grep -o '"browser_download_url": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    local api_response=""
+    if command -v curl &>/dev/null; then
+        api_response=$(curl -fsSL --retry 3 "$api_url" 2>/dev/null)
+    elif command -v wget &>/dev/null; then
+        api_response=$(wget -q -O - "$api_url" 2>/dev/null)
     else
-        error "❌ Neither curl nor wget available"
-        error "   Please install curl or wget and try again"
+        error "❌ Neither curl nor wget found — cannot download MindTheGapps"
         return 1
     fi
-    
+
+    if [[ -z "$api_response" ]]; then
+        error "❌ GitHub API returned empty response for ${github_repo}"
+        error "   Check network access or try: https://github.com/${github_repo}/releases"
+        return 1
+    fi
+
+    # Pick the first browser_download_url that ends in .zip (arm64 repo only has one zip)
+    download_url=$(printf '%s' "$api_response" \
+        | grep -o '"browser_download_url": *"[^"]*\.zip"' \
+        | head -1 \
+        | grep -o 'https://[^"]*')
+
     if [[ -z "$download_url" ]]; then
-        error "❌ Failed to fetch download URL from GitHub"
-        error "   Repository: $github_repo"
-        error "   Try manually downloading from:"
-        error "   https://github.com/$github_repo/releases"
+        error "❌ Could not parse download URL from GitHub API response"
+        error "   Repo: https://github.com/${github_repo}/releases"
+        error "   You can download manually and place the zip at: $output_file"
         return 1
     fi
-    
-    blue "   Download URL: $download_url"
-    
-    # Attempt download with curl first, fallback to wget
-    if command -v curl &> /dev/null; then
-        blue "   Using curl for download..."
-        curl -L -o "$output_file" "$download_url" --progress-bar || {
-            error "Failed to download MindTheGapps via curl"
+
+    blue "   URL: $download_url"
+
+    # Download with resume support
+    if command -v curl &>/dev/null; then
+        curl -L --retry 3 --retry-delay 3 --connect-timeout 20 \
+             -o "$output_file" "$download_url" --progress-bar || {
+            error "❌ curl download failed"
             rm -f "$output_file"
             return 1
         }
-    elif command -v wget &> /dev/null; then
-        blue "   Using wget for download..."
-        wget -O "$output_file" "$download_url" -q --show-progress || {
-            error "Failed to download MindTheGapps via wget"
+    else
+        wget -O "$output_file" -c --show-progress "$download_url" || {
+            error "❌ wget download failed"
             rm -f "$output_file"
             return 1
         }
     fi
-    
-    # Verify download
-    if [[ ! -f "$output_file" ]]; then
-        error "❌ Download verification failed"
+
+    # Verify: file must exist, be non-empty, and pass zip integrity check
+    if [[ ! -s "$output_file" ]]; then
+        error "❌ Downloaded file is empty or missing: $output_file"
+        rm -f "$output_file"
         return 1
     fi
-    
-    local file_size=$(du -h "$output_file" | cut -f1)
-    green "✅ MindTheGapps downloaded successfully"
-    green "   Location: $output_file"
-    green "   Size: $file_size"
+    if ! unzip -t "$output_file" &>/dev/null; then
+        error "❌ Downloaded file failed zip integrity check — likely a partial download"
+        rm -f "$output_file"
+        return 1
+    fi
+
+    local file_size
+    file_size=$(du -h "$output_file" | cut -f1)
+    green "✅ MindTheGapps downloaded and verified: $output_file ($file_size)"
+    return 0
 }
 
 download_opengapps() {
@@ -1508,42 +1531,46 @@ setup_gapps_for_cos_cn() {
 }
 
 # Enable Google Play Services and associated APIs
+# Usage: configure_google_play_services [android_version]
 configure_google_play_services() {
-    blue "🔌 Configuring Google Play Services..."
-    
+    local android_version="${1:-13}"
+    blue "🔌 Configuring Google Play Services (Android ${android_version})..."
+
     local gapps_prop="build/portrom/images/my_product/etc/bruce/build.prop"
     mkdir -p "$(dirname "$gapps_prop")"
-    
-    # Essential GMS properties for proper integration
-    cat >> "$gapps_prop" <<'EOF'
+
+    # gmsversion format is "<api_level>.0" — derive from android version
+    # Android 13=33, 14=34, 15=35, 16=36
+    local gms_ver="${android_version}_$(date +%Y%m)"
+
+    cat >> "$gapps_prop" << EOF
 
 # ━━━ Google Play Services Configuration ━━━
-# Required for GApps functionality in ColorOS CN
-ro.com.google.clientidbase=android-google
+# Required for GApps functionality in ColorOS CN — Rapchick Engine
+ro.com.google.clientidbase=android-oppo
 ro.com.android.dataroaming=true
 ro.com.android.dateformat=MM-dd-yyyy
 ro.setupwizard.enterprise_mode=1
 ro.com.google.gwsdisabled=0
 
 # Google Play Store & Account
-ro.com.google.gmsversion=13_202401
+ro.com.google.gmsversion=${gms_ver}
 ro.com.android.vending.api_version=11
 
 # Location Services
 ro.com.google.location.work=true
-ro.com.google.clientidbase=android-google
 
-# Analytics & Crash Reporting
+# Crash Reporting
 ro.setupwizard.show_repair_option=false
 ro.error.receiver.default=com.google.android.feedback.ErrorReceiver
 
-# Network Settings
+# USB & Setup
 persist.sys.usb.config=mtp,adb
 ro.setupwizard.network_required=false
 
 EOF
-    
-    green "✅ Google Play Services configured"
+
+    green "✅ Google Play Services configured (gmsversion=${gms_ver})"
 }
 
 # Auto-download and install GApps if port ROM is ColorOS CN
@@ -1583,4 +1610,4 @@ auto_download_gapps_for_coscn() {
     fi
 }
 
-trap 'error "Script interrupted! Exiting to prevent accidental deletion." ; exit 1' SIGINT
+trap 'error "Script interrupted! Exiting to prevent accidental deletion." ; exit 1' SIGINTs

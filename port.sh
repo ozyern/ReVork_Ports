@@ -3,7 +3,7 @@
 # For A-only and V/A-B Devices
 # Based on Android 14+
 # Test Base ROM: OnePlus 9 Pro (OxygenOS_14.0.0.1920)
-# Test Port ROM: OnePlus 15 (OxygenOS_16.0.3.501), OnePlus ACE3V(ColorOS_14.0.1.621) Realme GT Neo5 240W(RMX3708_14.0.0.800)
+# Test Port ROM: OnePlus 15 (OxygenOS_16.0.5.700), OnePlus 15t (ColorOS_16.0.5.701) Realme GT Neo5 240W(RMX3708_14.0.0.800)
 ###############################################################################
 # port.sh (ColorOS/OxygenOS/realme UI Porting Script)
 ###############################################################################
@@ -3767,10 +3767,8 @@ OP9PROEOF
             green "OP9 Pro exclusive profile applied — Rapchick Engine"
         fi
         # ════════════════════════════════════════════════════════════════════
-    fi
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
+        green "Smoothness Addons applied (SM8350)"
+    fi  # end: SM8350 block
 # ColorOS China Optimization Block — auto-detection + CN-specific tuning
 # ─────────────────────────────────────────────────────────────────────────────
 # Auto-detect ColorOS China variants and apply CN market-specific optimizations
@@ -4400,24 +4398,26 @@ GMSEOF
     fi
     
     # Add GApps system properties for optimal integration
-    if [[ -f build/portrom/images/system/build.prop ]]; then
-        # Ensure Google Play Services is trusted
-        grep -q "ro.com.google.clientidbase" build/portrom/images/system/build.prop || \
-            echo "ro.com.google.clientidbase=android-google" >> build/portrom/images/system/build.prop
-        
-        # Enable Google Play Store
-        grep -q "persist.sys.usb.config" build/portrom/images/system/build.prop || \
-            echo "persist.sys.usb.config=adb,mtp" >> build/portrom/images/system/build.prop
-        
-        # Identify as official Google ROM for Play Store compatibility
-        grep -q "ro.com.google.gmsversion" build/portrom/images/system/build.prop || \
-            echo "ro.com.google.gmsversion=13_202401" >> build/portrom/images/system/build.prop
-        
-        # Ensure Play Services framework is trusted
-        grep -q "persist.google.android.gms" build/portrom/images/system/build.prop || \
-            echo "persist.google.android.gms.gapps_installed=true" >> build/portrom/images/system/build.prop
-        
-        green "✅ FRAMEWORK: GApps system properties injected"
+    # system/build.prop lives one level deeper on most ColorOS builds
+    _sys_prop=""
+    for _candidate in \
+        "build/portrom/images/system/system/build.prop" \
+        "build/portrom/images/system/build.prop"; do
+        [[ -f "$_candidate" ]] && { _sys_prop="$_candidate"; break; }
+    done
+    if [[ -n "$_sys_prop" ]]; then
+        _gms_ver="${port_android_version}_$(date +%Y%m)"
+        grep -q "ro.com.google.clientidbase" "$_sys_prop" || \
+            echo "ro.com.google.clientidbase=android-oppo" >> "$_sys_prop"
+        grep -q "persist.sys.usb.config" "$_sys_prop" || \
+            echo "persist.sys.usb.config=adb,mtp" >> "$_sys_prop"
+        grep -q "ro.com.google.gmsversion" "$_sys_prop" || \
+            echo "ro.com.google.gmsversion=${_gms_ver}" >> "$_sys_prop"
+        grep -q "persist.google.android.gms" "$_sys_prop" || \
+            echo "persist.google.android.gms.gapps_installed=true" >> "$_sys_prop"
+        green "✅ FRAMEWORK: GApps system properties injected (gmsversion=${_gms_ver})"
+    else
+        yellow "⚠️  FRAMEWORK: system/build.prop not found — skipping prop injection"
     fi
     
     green "✅ CHECKPOINT: GApps framework fully configured (ColorOS CN)"
@@ -5179,22 +5179,31 @@ if [[ -f devices/common/wallpaper.zip ]] && [[ "$portIsColorOSGlobal" == "false"
 # The portrom (Global EX) carries wallpaper overlay APKs here that enable 3D/live
 # wallpaper — the CN baserom doesn't have them, so without saving them first they
 # are permanently lost. We stash them to tmp/ and restore after the copy.
-if [[ "${portIsColorOS}" == true ]] && [[ "${regionmark}" == "CN" ]]; then
+#
+# Guard: use baseIsColorOSCN (the *base* is CN), NOT regionmark which reflects the
+# port ROM's own region and will be GL/IN/etc when the port source is Global EX.
+if [[ "${baseIsColorOSCN}" == true ]]; then
     rm -rf tmp/portrom_wallpaper_res_backup
     mkdir -p tmp/portrom_wallpaper_res_backup
     # Save every overlay APK whose name contains wallpaper (case-insensitive)
     while IFS= read -r f; do
         cp -rf "${f}" tmp/portrom_wallpaper_res_backup/
-    done < <(find build/portrom/images/my_product/res/ -maxdepth 1         \( -iname "*wallpaper*" -o -iname "*Wallpapers*" \) 2>/dev/null)
+    done < <(find build/portrom/images/my_product/res/ -maxdepth 1 \
+        \( -iname "*wallpaper*" -o -iname "*Wallpapers*" \) 2>/dev/null)
     # Also save OplusWallpapers media asset dirs (3D mesh/video assets)
     rm -rf tmp/portrom_wallpaper_media_backup
     mkdir -p tmp/portrom_wallpaper_media_backup
-    for media_dir in         "build/portrom/images/my_product/media/wallpaper3d"         "build/portrom/images/my_product/media/wallpaper_3d"         "build/portrom/images/my_product/media/live_wallpaper_res"         "build/portrom/images/my_product/media/livewallpaper"
+    for media_dir in \
+        "build/portrom/images/my_product/media/wallpaper3d" \
+        "build/portrom/images/my_product/media/wallpaper_3d" \
+        "build/portrom/images/my_product/media/live_wallpaper_res" \
+        "build/portrom/images/my_product/media/livewallpaper"
     do
         if [[ -d "${media_dir}" ]]; then
             cp -rf "${media_dir}" tmp/portrom_wallpaper_media_backup/
         fi
     done
+    green "3D wallpaper: portrom overlays stashed before res wipe"
 fi
 
 rm -rf build/portrom/images/my_product/res/*
@@ -5203,20 +5212,34 @@ cp -rf build/baserom/images/my_product/res/* build/portrom/images/my_product/res
 # ── 3D wallpaper: restore portrom wallpaper overlays over CN res ──────────────
 # Now put the saved Global EX wallpaper overlay APKs back. They take precedence
 # over any CN wallpaper overlays because the Global ones declare 3D support.
-if [[ "${portIsColorOS}" == true ]] && [[ "${regionmark}" == "CN" ]]; then
-    if [[ -d tmp/portrom_wallpaper_res_backup ]] &&        [[ -n "$(ls -A tmp/portrom_wallpaper_res_backup 2>/dev/null)" ]]; then
-        cp -rf tmp/portrom_wallpaper_res_backup/*             build/portrom/images/my_product/res/
-        green "3D wallpaper: restored ${$(ls tmp/portrom_wallpaper_res_backup | wc -l)} overlay APK(s) from Global EX portrom"
+if [[ "${baseIsColorOSCN}" == true ]]; then
+    # Restore wallpaper overlay APKs
+    if [[ -d tmp/portrom_wallpaper_res_backup ]] && \
+       [[ -n "$(ls -A tmp/portrom_wallpaper_res_backup 2>/dev/null)" ]]; then
+        cp -rf tmp/portrom_wallpaper_res_backup/* \
+            build/portrom/images/my_product/res/
+        _wp_count=$(ls tmp/portrom_wallpaper_res_backup | wc -l)
+        green "3D wallpaper: restored ${_wp_count} overlay APK(s) from portrom"
     fi
     # Restore 3D wallpaper media asset dirs
-    if [[ -d tmp/portrom_wallpaper_media_backup ]] &&        [[ -n "$(ls -A tmp/portrom_wallpaper_media_backup 2>/dev/null)" ]]; then
-        cp -rf tmp/portrom_wallpaper_media_backup/*             build/portrom/images/my_product/media/
+    if [[ -d tmp/portrom_wallpaper_media_backup ]] && \
+       [[ -n "$(ls -A tmp/portrom_wallpaper_media_backup 2>/dev/null)" ]]; then
+        cp -rf tmp/portrom_wallpaper_media_backup/* \
+            build/portrom/images/my_product/media/
         green "3D wallpaper: restored media asset dirs"
     fi
     # Add 3D wallpaper feature flags — CN region strips these from oplus-feature XMLs
-    add_feature_v2 app_feature         "com.oplus.wallpapers.support_3d_wallpaper^^args="boolean:true""         "com.oplus.wallpapers.download_3d_wallpaper^^args="boolean:true""         "com.oplus.wallpapers.3d_wallpaper_support^^args="boolean:true""         "com.oplus.wallpapers.support_live_wallpaper^^args="boolean:true""         "com.oplus.wallpapers.live_wallpaper_download^^args="boolean:true""
-    add_feature_v2 oplus_feature         "oplus.software.wallpaper.3d_wallpaper_support"         "oplus.software.wallpaper.live_wallpaper_support"
-    green "3D wallpaper: feature flags enabled for CN ColorOS port"
+    # Single-quoted strings prevent the shell from treating the inner " as terminators
+    add_feature_v2 app_feature \
+        'com.oplus.wallpapers.support_3d_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.download_3d_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.3d_wallpaper_support^^args="boolean:true"' \
+        'com.oplus.wallpapers.support_live_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.live_wallpaper_download^^args="boolean:true"'
+    add_feature_v2 oplus_feature \
+        "oplus.software.wallpaper.3d_wallpaper_support" \
+        "oplus.software.wallpaper.live_wallpaper_support"
+    green "3D wallpaper: feature flags enabled for CN base ColorOS port"
 fi
 
 #rm -rf build/portrom/images/my_product/vendor/*
@@ -6425,4 +6448,4 @@ green "════════════════════════�
 green " Port complete — Rapchick Engine (@revork / Ozyern)"
 green " Output  : ${output_zip:-<see out/ directory>}"
 green " Duration: ${_BUILD_MM}m ${_BUILD_SS}s"
-green "════════════════════════════════════════════════════════"
+green " ════════════════════════════════════════════════════════"
