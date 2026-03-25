@@ -208,39 +208,359 @@ These functions follow the pipeline: **dex → smali → modify → regenerate d
 
 ---
 
-## 📲 10. Google Apps Integration (NEW)
+## 📲 10. Google Apps Integration (NEW) ⭐
 
-### Function: `install_google_apps` 🔵
-- 📍 Defined at: `functions.sh:1177`
-- **Purpose:** Installs Google Play Services and associated apps
-- **📥 Arguments:**
-  - `gapps_zip` (optional) — custom GApps package path
-- **🔑 Features:**
-  - Auto-detects custom GApps ZIP structure
-  - Falls back to default package if not provided
-  - Integrates with my_product/system_ext partitions
+### ⚠️ Important: GApps Must Be Downloaded Externally
 
-**Usage:**
-```bash
-install_google_apps "path/to/gapps.zip"  # Custom
-install_google_apps                       # Default package
-```
-
-### Function: `install_default_google_apps` 📦
-- **Includes:**
-  - 📱 Chrome, Maps, Drive, Photos, Pay
-  - 📧 Gmail, Messages, Docs/Sheets
-  - 🎥 YouTube, Photos, Search
-  - 💳 Wallet & Payment apps
-
-### Function: `configure_google_play_services` 🔌
-- **Purpose:** Adds GMS configuration properties
-- **Enables:** GPlay Store, Analytics, Regional settings
-- **Adds properties:** GMS version, client IDs, DataRoaming
+ColorOS CN ROMs **DO NOT** include Google Apps. You MUST download GApps from external sources:
+- **MindTheGapps** (recommended) — https://mindthegapps.com
+- **OpenGApps** — https://opengapps.org
 
 ---
 
-## 📚 11. Utility Functions
+### Function: `validate_gapps_package` 🔍
+- 📍 Defined at: `functions.sh:1177`
+- **Purpose:** Validate GApps ZIP package before installation
+- **📥 Arguments:** `(gapps_zip_path)`
+- **🔑 Validation checks:**
+  - ✅ ZIP file exists and is readable
+  - ✅ Contains required partition structure (system/my_product/system_ext)
+  - ✅ Contains Google Play Services (GMS)
+  - ✅ Lists detected core apps (Chrome, Drive, Maps, Photos, Pay)
+
+**Return Values:**
+- `0` — Valid GApps package
+- `1` — Invalid or missing GApps
+
+**Usage:**
+```bash
+validate_gapps_package "/path/to/gapps.zip"
+```
+
+---
+
+### Function: `install_google_apps` 📲
+- 📍 Defined at: `functions.sh:1220`
+- **Purpose:** Install validated GApps package into ROM
+- **📥 Arguments:** `(gapps_zip_path)`
+- **🔑 Features:**
+  - Validates package before installation
+  - Extracts from all partition types (system, my_product, system_ext)
+  - Logs app count per partition
+  - Handles errors gracefully with setup guide
+
+**Error Handling:**
+If GApps are missing or invalid, displays:
+- ❌ Error message
+- 📥 Download instructions (MindTheGapps, OpenGApps)
+- 📋 Recommended setup steps
+
+**Usage:**
+```bash
+install_google_apps "/path/to/gapps.zip"
+```
+
+**In port.sh:**
+```bash
+# Pass GApps as 4th parameter
+sudo ./port.sh <baserom> <portrom> "" gapps.zip
+```
+
+---
+
+### Function: `download_mindthegapps` 🌐
+- 📍 Defined at: `functions.sh:1281`
+- **Purpose:** Auto-download latest MindTheGapps for ColorOS CN integration
+- **📥 Arguments:**
+  - `android_version` (13, 14, 15, 16 — default: 13)
+  - `output_file` (save location, default: tmp/MindTheGapps.zip)
+- **🔑 Features:**
+  - Automatic download from official GitHub releases
+  - Dynamically fetches latest version with correct timestamp
+  - arm64 architecture only (required for OP9/OP9Pro)
+  - Progress bar display during download
+  - Automatic verification after save
+  - Fallback: curl → wget
+- **✅ Returns:** 0 on success, 1 on failure
+- **📝 Note:** Always gets the latest release, no manual URL updates needed
+
+**Usage:**
+```bash
+# Download for Android 13 (default location)
+download_mindthegapps 13
+
+# Download for Android 15 to custom location
+download_mindthegapps 15 "devices/common/MindTheGapps_A15.zip"
+
+# Then use in porting
+sudo ./port.sh baserom.zip portrom.zip "" devices/common/MindTheGapps_A15.zip
+```
+
+---
+
+### Function: `download_opengapps` 📦
+- 📍 Defined at: `functions.sh:1327`
+- **Purpose:** Auto-download OpenGApps with variant selection for ColorOS CN
+- **📥 Arguments:**
+  - `arch` (arm64 or armeabi-v7a, default: arm64)
+  - `android_version` (13, 14, 15, 16 — default: 13)
+  - `variant` (pico, nano, micro, mini, stock, full, super — default: stock)
+  - `output_file` (save location, default: tmp/OpenGApps_${variant}.zip)
+- **🔑 Variant Sizes & Content:**
+  - **pico** — 20MB (GMS only, minimal)
+  - **nano** — 100MB (GMS + essentials)
+  - **micro** — 150MB (+ Chrome, Maps, WebView)
+  - **mini** — 300MB (+ Drive, Photos, Calendar)
+  - **stock** — 500MB (recommended for porting) ⭐
+  - **full** — 700MB+ (all Google apps)
+  - **super** — 1GB+ (includes Google Play Games, Docs, Sheets)
+- **✅ Returns:** 0 on success, 1 on failure
+- **📥 Download Time:** 2-10 minutes depending on connection & variant
+
+**Usage:**
+```bash
+# Download stock variant for Android 13 (default)
+download_opengapps arm64 13 stock
+
+# Download mini variant for Android 15
+download_opengapps arm64 15 mini "tmp/OpenGApps_A15_mini.zip"
+
+# Download pico (minimal) for storage-constrained devices
+download_opengapps arm64 14 pico
+
+# Then use in porting
+sudo ./port.sh baserom.zip portrom.zip "" tmp/OpenGApps_A15_mini.zip
+```
+```
+
+---
+
+### Function: `setup_gapps_for_cos_cn` 📋
+- 📍 Defined at: `functions.sh:1329`
+- **Purpose:** Complete GApps setup guide for ColorOS CN porting
+- **📥 Arguments:** None
+- **🔑 Provides:**
+  - Comparison of GApps sources (MindTheGapps vs OpenGApps)
+  - Step-by-step setup instructions
+  - Download links
+  - Usage examples
+  - Important warnings
+
+**Usage:**
+```bash
+setup_gapps_for_cos_cn
+```
+
+**Output Example:**
+```
+🎯 Decision: Which GApps source to use?
+
+Option 1️⃣  — MindTheGapps (Recommended)
+  • Specifically designed for GMS-less ROMs
+  • Best compatibility with ColorOS CN
+  • Download: https://mindthegapps.com
+
+Option 2️⃣  — OpenGApps (Alternative)
+  • More variants available
+  • Larger packages overall
+  • Download: https://opengapps.org
+
+📋 Recommended Setup:
+  1. Download MindTheGapps for your Android version
+  2. Place ZIP in project root or devices/common/
+  3. Run: sudo ./port.sh <baserom> <portrom> --- /path/to/gapps.zip
+```
+
+---
+
+### Function: `configure_google_play_services` 🔌
+- 📍 Defined at: `functions.sh:1373`
+- **Purpose:** Configure GMS system properties
+- **🔑 Properties set:**
+  - `ro.com.google.clientidbase` — Android Google identification
+  - `ro.com.google.gmsversion` — GMS version
+  - `ro.setupwizard.enterprise_mode` — Setup wizard settings
+  - `ro.com.google.gwsdisabled` — Google Web Services
+  - Location & account services
+  - Network & USB configuration
+
+**Usage:**
+```bash
+configure_google_play_services
+```
+
+---
+
+### Function: `is_coloros_cn` 🔍 — NEW ⭐
+- 📍 Defined at: `functions.sh:1149`
+- **Purpose:** Auto-detect if port ROM is ColorOS CN (lacks Google Apps)
+- **📥 Arguments:**
+  - `build_prop_path` (optional, default: `build/portrom/images/my_manifest/build.prop`)
+- **🔑 Detection Indicators:**
+  - `ro.rom.zone=cn` — Chinese ROM variant
+  - `ro.build.fingerprint` contains "CN" marker
+  - `ro.build.display.id` contains "CN"
+  - Absence of `ro.com.google.clientidbase` property
+- **✅ Returns:** 0 if ColorOS CN detected, 1 if global/already has GApps
+
+**Usage:**
+```bash
+# Check if current port ROM is COS CN
+if is_coloros_cn; then
+    echo "This is ColorOS CN — needs GApps"
+fi
+
+# Check custom build.prop
+is_coloros_cn "path/to/build.prop"
+```
+
+---
+
+### Function: `auto_download_gapps_for_coscn` 🚀 — NEW ⭐
+- 📍 Defined at: `functions.sh:1552`
+- **Purpose:** Automatically detect ColorOS CN and download/install GApps (all-in-one)
+- **🔄 Called automatically from:** `port.sh` (during patch application phase)
+- **📥 Arguments:**
+  - `build_prop_path` (optional, default: `build/portrom/images/my_manifest/build.prop`)
+  - `android_version` (13-16, default: 13)
+  - `gapps_output` (save location, default: `tmp/MindTheGapps_auto.zip`)
+- **🔑 Automatic Actions:**
+  1. Detects if port ROM is ColorOS CN using `is_coloros_cn()`
+  2. If COS CN: Automatically downloads MindTheGapps via `download_mindthegapps()`
+  3. If COS CN: Automatically installs via `install_google_apps()`
+  4. If global variant: Skips installation and returns success
+- **✅ Returns:** 0 on success (installed or skipped), 1 on error
+
+**Default Behavior (Automatic from port.sh):**
+```bash
+# Just run port.sh normally — GApps auto-installation is built-in!
+sudo ./port.sh baserom.zip portrom.zip
+
+# Output during patch application:
+# Apply Gapps
+# 🚀 ColorOS CN detected — auto-downloading & installing Google Apps...
+# ✅ Google Apps installed successfully
+```
+
+**Manual Usage (Optional):**
+```bash
+# Auto-detect and install GApps for COS CN
+auto_download_gapps_for_coscn
+
+# Custom Android version
+auto_download_gapps_for_coscn "build/portrom/images/my_manifest/build.prop" 15
+
+# Custom save location
+auto_download_gapps_for_coscn "build/portrom/images/my_manifest/build.prop" 15 "devices/common/gapps.zip"
+```
+
+**Key Benefits:**
+- 🤖 **Fully automatic** — No manual intervention needed during port.sh
+- 🔍 **Smart detection** — Only downloads if ColorOS CN detected
+- 📱 **Pre-installed appearance** — GApps installed to system partitions (appears on first boot)
+- ⚡ **Zero-config** — Works out-of-box with port.sh
+- ✅ **Safe** — Skips installation if ROM already has GApps
+
+---
+
+## 🎨 11. 3D Wallpaper Integration (ColorOS CN) — NEW ⭐
+
+### Function: `extract_3d_wallpapers` 🎨
+- 📍 Defined at: `functions.sh:1277`
+- **Purpose:** Extract 3D wallpaper packages and assets from port ROM
+- **📥 Arguments:** `(source_rom)` optional
+- **🔑 Actions:**
+  - Searches for wallpaper APK packages (com.oplus.theme.wallpaper3d, etc.)
+  - Copies wallpaper directories to my_product/app
+  - Extracts 3D model assets & configurations
+
+**Packages Extracted:**
+- `com.oplus.theme.wallpaper3d` — 3D wallpaper engine
+- `com.coloros.wallpaper` — ColorOS provider
+- `com.oplus.wallpaper.livewallpaper` — Live wallpaper APK
+- `com.oplus.wallpaperservice` — Service daemon
+
+### Function: `extract_wallpaper_assets` 📦
+- **Purpose:** Extract 3D wallpaper media assets and models
+- **📂 Directories scanned:**
+  - `my_product/media/wallpapers` — Images & models
+  - `my_product/media/3d_wallpapers` — 3D assets
+  - `vendor/oplus/wallpaper_data` — Vendor data
+  - `system/app/WallpaperCropper` — Tools
+  - `system_ext/app/WallpaperPickerGoogle` — UI
+
+### Function: `integrate_3d_wallpaper_configs` ⚙️
+- **Purpose:** Configure 3D wallpaper system properties
+- **📋 Properties set:**
+  - `ro.oplus.wallpaper.3d.enabled=true`
+  - `ro.livewallpaper.dynamic.support=true`
+  - `persist.sys.wallpaper.animation=true`
+  - `ro.oplus.wallpaper.parallax.support=true`
+  - `ro.oplus.wallpaper.dark_mode.support=true`
+
+### Function: `copy_wallpaper_from_portrom` 📥
+- **Purpose:** Verify & copy wallpaper files from port ROM
+- **🔍 Verification:**
+  - Checks existence of wallpaper directories
+  - Logs file count & structure
+  - Preserves directory structure
+
+### Function: `install_3d_wallpaper_apks` 📱
+- **Purpose:** Install and integrate wallpaper APKs
+- **📥 Target APKs:**
+  - `com.oplus.theme.wallpaper3d`
+  - `com.coloros.wallpaper`
+  - `com.oplus.wallpaper.livewallpaper`
+- **🔏 Features:**
+  - Searches multiple partition locations
+  - Copies to `my_product/app/`
+  - Verifies APK signatures
+
+### Function: `add_wallpaper_features` 🎯
+- **Purpose:** Add system feature flags for wallpaper support
+- **🏷️ Feature flags added:**
+  - **oplus_feature:** 3D Wallpaper, Live Picker, Dynamic, Parallax
+  - **app_feature:** 3D enabled, High quality rendering
+  - **permission_feature:** Access, Read, Manage wallpapers
+
+### Function: `extract_wallpaper_metadata` 📋
+- **Purpose:** Extract & log wallpaper-related build properties
+- **🔍 Scans for:** Properties containing "wallpaper", "3d", or "live"
+- **📊 Output:** Count & list of discovered properties
+
+### Function: `port_3d_wallpapers_full` ⭐ (Main Function)
+- 📍 Defined at: `functions.sh:1450`
+- **Purpose:** Comprehensive 3D wallpaper porting (all-in-one)
+- **🔄 Complete workflow:**
+  1. Extract wallpaper packages from base ROM
+  2. Copy wallpaper-related files from port ROM
+  3. Install wallpaper APKs with dependencies
+  4. Configure system properties
+  5. Add feature flags
+  6. Extract metadata & verify
+
+**Usage:**
+```bash
+# Full integration in one call
+port_3d_wallpapers_full
+
+# Or use individual functions
+extract_3d_wallpapers
+install_3d_wallpaper_apks
+integrate_3d_wallpaper_configs
+add_wallpaper_features
+```
+
+**Features Applied:**
+- ✅ Wallpaper APKs extracted & integrated
+- ✅ 3D models copied from port ROM
+- ✅ System properties configured
+- ✅ Feature flags added to manifest
+- ✅ Metadata verified & logged
+
+---
+
+## 📚 12. Utility Functions
 
 ### Function: `convert_version_to_number` 🔢
 - **Purpose:** Converts semantic version to numeric representation
@@ -252,7 +572,7 @@ install_google_apps                       # Default package
 
 ---
 
-## 🚨 12. Error Handling
+## 🚨 13. Error Handling
 
 **Signal Trap:**
 ```bash

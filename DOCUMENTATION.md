@@ -49,7 +49,8 @@ The main porting script.
    - Dolby, AOD, SystemUI smali rewrites
    - Feature flag XML add/remove, build property adjustments
    - ZIPs and overlays from `devices/common` and `devices/<device>`
-   - **NEW:** Google Apps integration (GApps)
+   - **✨ NEW:** Google Apps auto-detection & installation (GApps — ColorOS CN only)
+   - **✨ NEW:** 3D Wallpaper integration (ColorOS CN)
 
 5. **🔓 Security & Encryption**
    - Optionally removes the data encryption flag (`remove_data_encryption=true`)
@@ -87,10 +88,29 @@ Utility library sourced by `port.sh`. Provides:
 - `add_feature_v2` / `remove_feature` — Feature flag XML management
 - `add_prop_v2` / `remove_prop_v2` / `prepare_base_prop` — Build.prop editing
 
-**Google Apps:** ✨ NEW
-- `install_google_apps` — Install custom or default GApps
-- `install_default_google_apps` — Bundle: Chrome, Drive, Photos, Pay, Maps, YouTube
-- `configure_google_play_services` — GMS property configuration
+**Google Apps:** ✨ NEW & AUTOMATIC
+- `is_coloros_cn` — Auto-detect if port ROM is ColorOS CN
+- `auto_download_gapps_for_coscn` — Auto-detect & download/install GApps (all-in-one) 🚀
+- `validate_gapps_package` — Validate GApps ZIP structure before integration
+- `install_google_apps` — Install external GApps package into ROM
+- `download_mindthegapps` — Auto-download MindTheGapps (recommended for CN)
+- `download_opengapps` — Auto-download OpenGApps with variant selection
+- `setup_gapps_for_cos_cn` — Complete GApps setup wizard with usage guide
+- `configure_google_play_services` — Configure GMS properties for Play Services
+
+ℹ️ **Automatic GApps Installation for ColorOS CN**
+   - 🤖 Automatically detected & downloaded during port.sh
+   - 📱 GApps appear pre-installed on first boot (like global ROMs)
+   - ⏭️ No manual download/installation needed
+   - ⚡ Uses latest MindTheGapps from GitHub releases
+   - ✅ Skips installation if ROM already has GApps
+
+**3D Wallpaper:** ✨ NEW
+- `extract_3d_wallpapers` — Extract wallpaper packages from port ROM
+- `install_3d_wallpaper_apks` — Install wallpaper APKs with dependencies
+- `integrate_3d_wallpaper_configs` — Configure wallpaper system properties
+- `add_wallpaper_features` — Add wallpaper feature flags
+- `port_3d_wallpapers_full` — Complete wallpaper integration (all-in-one)
 
 ---
 
@@ -169,6 +189,19 @@ For detailed origin & justification of each device ZIP: see [DEVICES_ZIPS_ORIGIN
 | `ril_fix_a13_to_a15.zip` 📞 | RIL/modem communication | commcenterd, radio libs, firmware |
 | `voice_trigger_fix.zip` 🎤 | Voice assistant models | OVoiceManagerService APK + models |
 | `wifi_fix_a16.zip` 📡 | WiFi for Android 16 | com.android.wifi.apex |
+| `wallpaper_3d_fix.zip` 🎨 | 3D Wallpaper for CN ROMs | Wallpaper APKs, 3D models, assets |
+
+---
+
+### 🎨 3D Wallpaper Assets Support
+
+**ColorOS CN 3D Wallpaper Files:**
+- Automatically extracted from port ROM
+- Includes: `com.oplus.theme.wallpaper3d`, `com.coloros.wallpaper`
+- Live wallpaper APKs with full animation support
+- 3D model assets & textures
+- Parallax scrolling configuration
+- Dark mode wallpaper adaptation
 
 ### 👤 OnePlus/OPPO Device Resources (`devices/<device>/`)
 

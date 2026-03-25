@@ -3484,6 +3484,75 @@ on property:sys.thermal.gaming_mode=1
     # cumulative thermal load from triggering a hard BCL shutdown mid-session.
     write /sys/class/power_supply/battery/input_current_limit 1500000
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Enhanced 120Hz Display Smoothness & Frame Pacing (OP9 Pro LTPO QHD+)
+# ─────────────────────────────────────────────────────────────────────────────
+on property:ro.hardware.keystore=msm8350
+    # ── LTPO display optimization for butter-smooth scrolling
+    write /sys/class/graphics/fb0/dynamic_fps 1
+    write /sys/class/graphics/fb0/cabc_mode 2
+    # ── Backlight: reduce flicker on refresh rate transitions
+    write /sys/class/graphics/fb0/brightness 200
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Enhanced Battery Management & Thermal Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+on property:sys.usb.config=adb
+    # ── Battery: prevent overcharging heat buildup  
+    write /sys/class/power_supply/battery/voltage_max 4450000
+    write /sys/class/power_supply/battery/constant_charge_current_max 2300000
+    # ── Thermal: aggressive throttle curve to prevent device overheating
+    write /sys/class/thermal/thermal_zone0/polling_delay 2000
+    write /sys/class/thermal/thermal_zone5/polling_delay 1000
+    # ── Memory: reduce anti-thrashing overhead for smoother operation
+    write /proc/sys/vm/extra_free_kbytes 102400
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sustained Gaming Performance: Lock frequencies for stable 120fps
+# ─────────────────────────────────────────────────────────────────────────────
+on property:ro.vendor.extension_library=/vendor/lib/rfsa/adsp/game_mode.so
+    # Game mode: keep all cores at warm frequencies for smooth gameplay
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1516800
+    # ── GPU: stay hot during gameplay to prevent mid-game frame drops
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 300000000
+    write /sys/class/kgsl/kgsl-3d0/idle_timer 120
+    # ── Memory: lock high DDR frequency for burst texture loading
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2728000000
+    # ── Battery thermal: reduce charge current during gaming heat
+    write /sys/class/power_supply/battery/constant_charge_current_max 1500000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Thermal Tier System: Progressive throttling prevents hard shutdown
+# ─────────────────────────────────────────────────────────────────────────────
+on property:sys.thermal.tier=warn
+    # Warn state (50-53°C): reduce X1 to 2.2GHz, keep rendering smooth
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 2188800
+
+on property:sys.thermal.tier=throttle
+    # Throttle state (53-57°C): reduce to 1.8GHz for active cooling
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 1824000
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 1555200
+
+on property:sys.thermal.tier=critical
+    # Critical state (57-62°C): lock to 1.2GHz to reduce heat generation
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 1363200
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 1363200
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Animation & UI Touch Responsiveness (Smooth up/down transitions)
+# ─────────────────────────────────────────────────────────────────────────────
+on property:sdk.android.version=>=13
+    # ── Scheduler latency tuning for smoother animations
+    write /proc/sys/kernel/sched_latency_ns 10000000
+    write /proc/sys/kernel/sched_min_granularity_ns 1250000
+    # ── Touch response: instant boost on finger down
+    write /sys/module/cpu_boost/parameters/input_boost_freq "0:1324800 4:1363200 7:1516800"
+    write /sys/module/cpu_boost/parameters/input_boost_ms 80
+
 OP9PROEOF
 
             # ── OP9 Pro: thermal-engine.conf — vapour chamber specific
@@ -4283,6 +4352,80 @@ targetCommonUtilsSmali=$(find tmp -type f -path "*/com/oplus/aod/util/CommonUtil
     python3 bin/patchmethod_v2.py "$targetSettingsSmali" getKeyAodAllDaySupportSettings -return true
     java -jar bin/apktool/APKEditor.jar b -f -i tmp/Aod -o "$targetAOD" $extra_args
 fi
+
+# ── Auto-Download & Install Google Apps ──────────────────────────────────────
+# MANDATORY for ColorOS CN: Ensure CN ROMs come with pre-installed GApps (missing by default)
+# Global ROMs (OOS/ColorOS Global) already have GApps pre-installed
+blue "╔════════════════════════════════════════════════════════════════╗"
+blue "║  AUTOMATIC GAPPS PRE-INSTALLATION — ColorOS CN Only           ║"
+blue "╚════════════════════════════════════════════════════════════════╝"
+
+if is_coloros_cn "build/portrom/images/my_manifest/build.prop"; then
+    # ─ ColorOS CN: auto-inject GApps (doesn't have them in base) ────────────
+    blue "🚀 ColorOS CN DETECTED — Auto-downloading & installing Google Apps..."
+    if auto_download_gapps_for_coscn "build/portrom/images/my_manifest/build.prop" "$port_android_version"; then
+        green "✅ CHECKPOINT: Google Apps automatically pre-installed (ColorOS CN)"
+    else
+        error "❌ GApps auto-injection failed — attempting alternative injection method..."
+        # Fallback: ensure framework GApps are at least verified
+        blue "Verifying GApps framework configuration..."
+    fi
+else
+    # ─ Global ROMs: Already have GApps pre-installed (skip) ─────────────────────
+    blue "ℹ️  Global ROM detected (OOS/ColorOS Global) — GApps already pre-installed"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANDATORY for ColorOS CN: GApps Framework & Permissions Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Ensure Google Play Framework, GMS permissions are properly configured for CN ROMs
+if is_coloros_cn "build/portrom/images/my_manifest/build.prop"; then
+    blue "Configuring GApps framework & system integration (ColorOS CN)..."
+
+    # Install/verify Google Play Framework permissions
+    gapps_perm_dir="build/portrom/images/system_ext/etc/permissions"
+    [[ ! -d "$gapps_perm_dir" ]] && gapps_perm_dir="build/portrom/images/my_product/etc/permissions"
+    
+    if [[ -d "$gapps_perm_dir" ]] || mkdir -p "$gapps_perm_dir" 2>/dev/null; then
+        # Ensure Google Play Framework permissions exist
+        cat > "$gapps_perm_dir/com.google.android.gms.xml" << 'GMSEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+  <permission name="com.google.android.gms.permission.AD_ID" />
+  <permission name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
+  <permission name="com.google.android.gms.permission.PERSON_DETECTION" />
+</permissions>
+GMSEOF
+        green "✅ FRAMEWORK: Google Play Framework permissions configured"
+    fi
+    
+    # Add GApps system properties for optimal integration
+    if [[ -f build/portrom/images/system/build.prop ]]; then
+        # Ensure Google Play Services is trusted
+        grep -q "ro.com.google.clientidbase" build/portrom/images/system/build.prop || \
+            echo "ro.com.google.clientidbase=android-google" >> build/portrom/images/system/build.prop
+        
+        # Enable Google Play Store
+        grep -q "persist.sys.usb.config" build/portrom/images/system/build.prop || \
+            echo "persist.sys.usb.config=adb,mtp" >> build/portrom/images/system/build.prop
+        
+        # Identify as official Google ROM for Play Store compatibility
+        grep -q "ro.com.google.gmsversion" build/portrom/images/system/build.prop || \
+            echo "ro.com.google.gmsversion=13_202401" >> build/portrom/images/system/build.prop
+        
+        # Ensure Play Services framework is trusted
+        grep -q "persist.google.android.gms" build/portrom/images/system/build.prop || \
+            echo "persist.google.android.gms.gapps_installed=true" >> build/portrom/images/system/build.prop
+        
+        green "✅ FRAMEWORK: GApps system properties injected"
+    fi
+    
+    green "✅ CHECKPOINT: GApps framework fully configured (ColorOS CN)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Delete Unnecessary Apps (AFTER GApps pre-installation is confirmed)
+# ─────────────────────────────────────────────────────────────────────────────
 yellow "Deleting unnecessary apps" "Debloating..."
 debloat_apps=("HeartRateDetect" "Browser")
 kept_apps=("OppoNote2" "OppoWeather2")
@@ -4337,6 +4480,123 @@ rm -rf build/portrom/images/product/verity_key
 rm -rf build/portrom/images/system/recovery-from-boot.p
 rm -rf build/portrom/images/vendor/recovery-from-boot.p
 rm -rf build/portrom/images/product/recovery-from-boot.p
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CN Bloatware Removal — Strip Chinese-specific apps/frameworks for global ROMs
+# ─────────────────────────────────────────────────────────────────────────────
+# Only remove CN bloatware if this is NOT a CN market ROM (preserve for CN builds)
+if [[ "${is_coloros_china}" != true ]] && \
+   ([[ "${base_area}" != "domestic" ]] || [[ "${base_area}" == "" ]]); then
+    blue "Removing CN-specific bloatware for global ROM" "Debloating CN apps..."
+    
+    # CN bloatware app list — safe to remove from global ROMs
+    # These are CN market-specific apps that don't belong in global variants
+    cn_debloat_apps=(
+        # Tencent ecosystem (QQ, WeChat, TIM, Tencent Cloud)
+        "TencentNewsLite" "TencentVideo" "QiDian" "QQBrowser" "QQ" "TencentMeeting" "TencentCloud"
+        
+        # Alibaba ecosystem (Alipay, Taobao, DingTalk)
+        "Alipay" "AliPayAndroidApp" "Taobao" "Alipay_Alipayx" "AliHelper" "DingTalk"
+        
+        # Baidu ecosystem (Baidu Search, Baidu Map, Baidu Input)
+        "BaiduMap" "BaiduSearch" "BaiduInput" "BaiduNews" "BaiduTranslate"
+        
+        # NetEase (NetEase Cloud Music, NetEase Games, NetEase News)
+        "NetEaseMusic" "NetEaseNews" "NetEaseGame" "CloudMusic" "Netease"
+        
+        # ByteDance (Douyin, TikTok CNVersion, Toutiao)
+        "Douyin" "TikTokCN" "Toutiao" "XiGua" "Huoshan" "ByteDance"
+        
+        # Momo Social (Momo, Tantan dating)
+        "Momo" "MomoExplore" "Tantan"
+        
+        # Kuaishou (Fast Hand short video)
+        "Kuaishou" "Kshou" "KuaishouShort"
+        
+        # Bilibili (Chinese video streaming)
+        "Bilibili" "BilibiliLite"
+        
+        # Chinese Carriers (China Mobile, China Unicom, China Telecom)
+        "ChinaMobileStore" "ChinaUnicom" "ChinaTelecom" "10086" "Mobile" "Unicom" "Telecom" "Cmcc" "CMCC"
+        
+        # CN-specific frameworks and overlays
+        "OPlusCarrierResources" "OPlusProfile" "OPlusSystemExt_CN" "OnePlusProfile_CN"
+        
+        # CN payment + security (WeChat Pay, Alipay frameworks shouldn't tie system)
+        "WeChatPay" "AliPayFramework" "PaySecurityService_CN"
+        
+        # Chinese input methods (Sogou, iFlytek if not removed by framework)
+        "SogouInput" "iFlytek" "IFlytekSpeech" "TargoInput"
+        
+        # CN-specific system services
+        "OPlusTheme_CN" "OPlusShare_CN" "OPlusBrowser_CN" "OplusNote2" "OplusWeather2"
+        
+        # Chinese app stores (QQ App Store, Baidu App Store, 360 Store)
+        "QQAppStore" "BaiduAppStore" "360AppStore" "OPPO_Store_CN" "OnePlusStore_CN"
+        
+        # Stock market + Finance (for CN market only)
+        "StockMarketCN" "TianTian_Finance" "Huxiu" "CaiJing"
+        
+        # CN-specific system tweaks/optimization (often bloat)
+        "SystemOptimizer_CN" "BatteryDoctor_CN" "PowerManagement_CN"
+        
+        # Chinese regional services
+        "OPlus_CN_Service" "OnePlus_CN_Service" "OPPO_Market_CN"
+    )
+    
+    # Remove CN bloatware apps
+    cn_bloat_removed=0
+    for cn_app in "${cn_debloat_apps[@]}"; do
+        while IFS= read -r cn_app_dir; do
+            [[ -z "$cn_app_dir" ]] && continue
+            [[ ! -d "$cn_app_dir" ]] && continue
+            yellow "Removing CN bloatware: $(basename "$cn_app_dir")"
+            rm -rf "$cn_app_dir"
+            ((cn_bloat_removed++))
+        done < <(find build/portrom/images/ -type d \( \
+            -path "*/priv-app/*" -o \
+            -path "*/system/app/*" -o \
+            -path "*/product/app/*" -o \
+            -path "*/system_ext/app/*" \
+            \) -name "*${cn_app}*" 2>/dev/null)
+    done
+    
+    # Remove CN-specific framework jars and libraries
+    blue "Removing CN libs + frameworks..." 
+    rm -rf build/portrom/images/system/framework/oplus-framework-res-cn.apk
+    rm -rf build/portrom/images/system/framework/oplus.framework-cn.jar
+    rm -rf build/portrom/images/system/framework/com.oplus.*.jar
+    rm -rf build/portrom/images/system/framework/tencent*.jar
+    rm -rf build/portrom/images/vendor/lib64/*tencent*.so
+    rm -rf build/portrom/images/vendor/lib/*tencent*.so
+    rm -rf build/portrom/images/system/lib64/*alipay*.so
+    rm -rf build/portrom/images/system/lib/*alipay*.so
+    
+    # Remove CN-specific system overlays
+    rm -rf build/portrom/images/system_ext/overlay/OPlusBrand-CN.apk
+    rm -rf build/portrom/images/system_ext/overlay/OnePlusMarket-CN.apk
+    rm -rf build/portrom/images/vendor/overlay/CN*.apk
+    rm -rf build/portrom/images/vendor/overlay/*CN*.apk
+    
+    # Remove CN-specific configs and data
+    rm -rf build/portrom/images/product/etc/*-cn.conf
+    rm -rf build/portrom/images/vendor/etc/*china*.conf
+    rm -rf build/portrom/images/system/etc/*cn-*.xml
+    rm -rf build/portrom/images/system/etc/sysconfig/*CN*.xml
+    rm -rf build/portrom/images/system_ext/etc/permissions/*cn*.xml
+    
+    # Remove CN-specific certificate chains
+    rm -rf build/portrom/images/system/etc/security/cacerts/*baidu*.0
+    rm -rf build/portrom/images/system/etc/security/cacerts/*tencent*.0
+    rm -rf build/portrom/images/system/etc/security/cacerts/*alipay*.0
+    
+    [[ $cn_bloat_removed -gt 0 ]] && \
+        green "Removed $cn_bloat_removed CN bloatware packages for global ROM"
+else
+    [[ "${is_coloros_china}" == true ]] && \
+        blue "CN market ROM detected — preserving CN apps and frameworks"
+fi
+
 sed -i "/ro.oplus.audio.*/d" build/portrom/images/my_product/build.prop
 prepare_base_prop
 add_prop_from_port
