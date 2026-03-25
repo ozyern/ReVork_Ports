@@ -267,51 +267,6 @@ build/OP9/           # Final flashable zip
 | **CPU** | 4-core | 8-core |
 | **OS** | Ubuntu 20.04+ | Ubuntu 22.04+ |
 
-### 📦 Dependencies (auto-installed by setup.sh)
-```bash
-✅ unzip          - ZIP file extraction
-✅ aria2c         - Fast parallel downloader
-✅ 7z             - 7z archive support
-✅ zip            - ZIP creation
-✅ java           - APKTool runtime
-✅ python3        - sdat2img, patching scripts
-✅ zstd           - Zstandard compression
-✅ bc             - Calculator for scripts
-✅ xmlstarlet     - XML processing
-```
-
----
-
-## 🎯 Performance Benchmarks (Expected)
-
-### 📈 Geekbench 6 (OnePlus 9 Pro)
-```
-Before ReVork:     SC: 1850 | MC: 8500
-After ReVork:      SC: 1950 | MC: 9200
-Improvement:       ↑ 5-8% SC | ↑ 8-10% MC
-```
-
-### 🎮 Gaming (120Hz Gaming)
-```
-Before:  Average FPS: 58  | Thermal: 78°C | Battery: 4.5h
-After:   Average FPS: 120 | Thermal: 72°C | Battery: 5.0h
-Gain:    ↑ 107% FPS smooth | ↓ 6°C cooler | ↑ 10% battery life
-```
-
-### 🔋 Battery (Idle Standby)
-```
-Before:  24h idle + WiFi
-After:   28h idle + WiFi
-Saving:  ↑ 15-20% longer battery
-```
-
----
-
-## 📝 Common Commands
-
-```bash
-# View available config options
-cat bin/port_config
 
 # Enable verbose output
 export DEBUG=1
@@ -347,8 +302,7 @@ Found an issue or have an optimization?
 **MIT License** - Feel free to use, modify, and distribute!
 
 ```
-ReVork © 2024 - Ozyern
-Rapchick Engine © 2024 - Performance Team
+ReVork © 2026 - Ozyern
 ```
 
 ---
@@ -446,19 +400,6 @@ battery_saver_threshold=15           # % battery level
 └─────────────────────────────┘
 ```
 
-### 🌡️ Thermal Throttling Flow
-
-```
-65°C (Normal)    → Full performance (2.8GHz X1, 750MHz GPU)
-  ↓
-70°C (Warm)      → Slight throttle (2.4GHz X1, 600MHz GPU) 
-  ↓
-75°C (Hot)       → Sustained throttle (1.8GHz X1, 450MHz GPU)
-  ↓
-80°C (Critical)  → Emergency throttle (1.2GHz X1, 300MHz GPU)
-  ↓
-85°C (Thermal)   → Shutdown protection triggered
-```
 
 ### ⚡ Frequency Locking Strategy
 
