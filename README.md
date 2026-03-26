@@ -725,33 +725,12 @@ Total estimated improvement:
 - 💬 [Discussions](https://github.com/ozyern/coloros_port/discussions)
 - 🔔 [Releases](https://github.com/ozyern/coloros_port/releases)
 
-### 🤝 Contributing Code
-
-```bash
-# Fork the repo
-git clone https://github.com/YOUR_USERNAME/coloros_port
-cd coloros_port
-
-# Create feature branch
-git checkout -b feature/my-optimization
-
-# Test thoroughly
-./port.sh <test_base> <test_port>
-
-# Commit & push
-git add .
-git commit -m "Add: CN-specific memory tuning"
-git push origin feature/my-optimization
-
-# Create Pull Request on GitHub
-```
 
 ---
 
 ## 🙏 Credits
 
 - **Ozyern** - Project founder & lead developer
-- **Toraidl** - Original coloros_port base architecture
 - **QTI/Qualcomm** - Perf HAL & thermal framework APIs
 - **AOSP Team** - Core Android optimization techniques
 - **Community Contributors** - Thermal testing & feedback
