@@ -261,9 +261,6 @@ patch_kernel_to_bootimg() {
 }
 
 patch_kernel() {
-    # Temporarily disable strict error handling — magiskboot exits non-zero
-    # for raw ramdisks and other expected conditions. set -e / pipefail would
-    # kill the script before our || guards can handle them.
     set +euo pipefail
     local _restore_opts="set -euo pipefail"
 
@@ -338,7 +335,6 @@ patch_kernel() {
 
     blue "patch_kernel() done"
     cd "${work_dir}"
-    # Restore strict error handling
     set -euo pipefail
 }
 
@@ -356,7 +352,7 @@ add_feature() {
     done
     if [[ $found == 0 ]] ; then
         blue "Adding feature $feature"
-        sed -i "/<\/$parent_node>/i\\\t\\<$feature_node name=\"$feature\"\/>" "$file"
+        sed -i "/<\/$parent_node>/i\\\\t\\<$feature_node name=\"$feature\"\/>" "$file"
     fi
 }
 
@@ -441,10 +437,10 @@ done
 
         # Write comment/label if provided
         if [[ -n "$comment" ]]; then
-            sed -i "/<\/$root_tag>/i\\\    <!-- $comment -->" "$output_file"
+            sed -i "/<\/$root_tag>/i\\    <!-- $comment -->" "$output_file"
         fi
         # Write feature node
-        sed -i "/<\/$root_tag>/i\\\    <$node_tag $attrs\/>" "$output_file"
+        sed -i "/<\/$root_tag>/i\\    <$node_tag $attrs\/>" "$output_file"
     fi
 done
 }
@@ -605,7 +601,7 @@ merge_portrom_bruce_props() {
         [[ -z "$key" || "$key" =~ ^# ]] && continue
         [[ -z "$value" ]] && continue
         # Skip keys with special regex characters that would break grep/sed
-        [[ "$key" =~ [.\*\[\]\^\$] ]] && key=$(printf '%s' "$key" | sed 's/[.[\*^$]/\\&/g')
+        [[ "$key" =~ [.\*\[\]\^\$] ]] && key=$(printf '%s' "$key" | sed 's/[.[\\*^$]/\\&/g')
 
         key_lc=$(echo "$key" | tr '[:upper:]' '[:lower:]')
         if [[ "$key_lc" == *"camera"* ]] || [[ "$key_lc" == ro.camerax.* ]]; then
@@ -854,386 +850,81 @@ get_oplusrom_version() {
     echo "$max_version"
 }
 
-# ╔═══════════════════════════════════════════════════════════════╗
-# ║   3D Wallpaper Integration — ColorOS CN Feature              ║
-# ║   Extract wallpaper APKs, 3D models, LiveWallpaper configs   ║
-# ╚═══════════════════════════════════════════════════════════════╝
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ColorOS CN Detection — Rapchick Engine                                  ║
+# ║  Consolidated, fast, and reliable CN variant check                       ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
-extract_3d_wallpapers() {
-    blue "📱 3D Wallpaper Extraction Module (ColorOS CN)"
-    
-    local source_rom="${1:-}"
-    local target_dir="build/portrom/images"
-    local wallpaper_dir="$target_dir/my_product/app"
-    
-    if [[ -z "$source_rom" ]]; then
-        blue "ℹ️  No source ROM provided. Looking for existing wallpaper files..."
-        blue "   Checking: build/baserom/images/my_product/app/ for wallpaper APKs"
-    fi
-    
-    mkdir -p "$wallpaper_dir"
-    
-    # List of ColorOS CN 3D wallpaper packages to extract/copy
-    local wallpaper_packages=(
-        "com.oplus.theme.wallpaper3d"           # Main 3D wallpaper APK
-        "com.coloros.wallpaper"                 # ColorOS wallpaper provider
-        "com.oplus.wallpaper"                   # OPLUS wallpaper service
-        "com.oplus.wallpaper.livewallpaper"     # Live wallpaper APK
-        "com.oplus.wallpaperservice"            # Wallpaper service daemon
-        "com.oppo.theme"                        # Theme wallpapers
-        "com.android.wallpaper.livepicker"      # System live wallpaper picker
-    )
-    
-    blue "🎨 Extracting 3D wallpaper packages:"
-    for pkg in "${wallpaper_packages[@]}"; do
-        local pkg_path=$(find build/baserom/images/my_product/app/ -maxdepth 1 -type d -name "$pkg" 2>/dev/null)
-        
-        if [[ -d "$pkg_path" ]]; then
-            blue "  ✓ Found: $pkg"
-            cp -rf "$pkg_path" "$wallpaper_dir/" || true
-        else
-            yellow "  ⊘ Not found: $pkg (may not be in base)"
-        fi
-    done
-    
-    # Extract 3D wallpaper assets from portrom
-    extract_wallpaper_assets "$target_dir"
-}
-
-extract_wallpaper_assets() {
-    blue "📦 Extracting 3D wallpaper assets..."
-    
-    local base_dir="${1:-build/portrom/images}"
-    local asset_dir="$base_dir/my_product/media/wallpapers"
-    
-    mkdir -p "$asset_dir"
-    
-    # Look for wallpaper-related directories in portrom
-    local wallpaper_sources=(
-        "my_product/media/wallpapers"           # Wallpaper images/models
-        "my_product/media/3d_wallpapers"        # 3D models & assets
-        "my_product/etc/default_wallpaper"      # Default wallpaper configs
-        "my_product/overlay/WallpaperPickerGoogle"  # Wallpaper picker overlay
-        "vendor/oplus/wallpaper_data"           # Vendor wallpaper data
-        "system/app/WallpaperCropper"           # Wallpaper cropper tool
-        "system_ext/app/WallpaperPickerGoogle"  # Extended wallpaper picker
-    )
-    
-    blue "🎨 Wallpaper asset directories:"
-    for src in "${wallpaper_sources[@]}"; do
-        if [[ -d "$base_dir/$src" ]]; then
-            blue "  ✓ Found: $src"
-            mkdir -p "$(dirname "$base_dir/$src")" 2>/dev/null || true
-            cp -rf "$base_dir/$src" "$(dirname "$base_dir/$src")/" 2>/dev/null || true
-        fi
-    done
-    
-    green "✅ Wallpaper assets extracted"
-}
-
-integrate_3d_wallpaper_configs() {
-    blue "⚙️  Configuring 3D wallpaper system properties..."
-    
-    local target_dir="build/portrom/images/my_product/etc"
-    local wallpaper_conf="$target_dir/bruce/wallpaper.prop"
-    
-    mkdir -p "$(dirname "$wallpaper_conf")"
-    
-    cat >> "$wallpaper_conf" <<'EOF'
-
-# ━━━ 3D Wallpaper Configuration (ColorOS CN) ━━━
-
-# Enable 3D wallpaper rendering
-ro.oplus.wallpaper.3d.enabled=true
-ro.oplus.wallpaper.3d.support=true
-
-# Live wallpaper settings
-ro.livewallpaper.dynamic.support=true
-ro.oplus.livewallpaper.support=true
-persist.sys.wallpaper.type=3d
-
-# Default wallpaper configuration
-ro.com.android.dataroaming=true
-persist.sys.wallpaper_blur_enabled=1
-
-# Wallpaper animation & smoothness
-persist.sys.wallpaper.animation=true
-ro.oplus.wallpaper.animation.speed=normal
-
-# 3D rendering optimization
-ro.hardware.wallpaper.3d=true
-ro.oplus.wallpaper.render.quality=high
-
-# ColorOS wallpaper provider
-ro.oplus.wallpaper.provider=com.coloros.wallpaper
-ro.oplus.wallpaper.service=com.oplus.wallpaperservice
-
-# Live wallpaper picker configuration
-ro.com.google.clientidbase=android-google
-ro.wallpaper.livepicker=com.android.wallpaper.livepicker
-
-# Parallax scrolling for 3D wallpapers
-ro.oplus.wallpaper.parallax.support=true
-persist.sys.wallpaper.parallax=1
-
-# Night light & dark mode wallpaper support
-ro.oplus.wallpaper.dark_mode.support=true
-persist.sys.wallpaper_dark_mode=false
-
-EOF
-    
-    green "✅ 3D wallpaper configuration added"
-}
-
-copy_wallpaper_from_portrom() {
-    blue "📥 Copying 3D wallpaper files from port ROM..."
-    
-    local target_dir="build/portrom/images"
-    local wallpaper_data_dirs=(
-        "my_product/app/com.oplus.theme.wallpaper3d"
-        "my_product/app/com.coloros.wallpaper"
-        "my_product/app/com.oplus.wallpaper"
-        "my_product/media/wallpapers"
-        "my_product/media/3d_assets"
-        "my_product/etc/default_wallpaper"
-    )
-    
-    for src_dir in "${wallpaper_data_dirs[@]}"; do
-        if [[ -d "$target_dir/$src_dir" ]]; then
-            blue "  📂 Located: $src_dir"
-            # Verify and preserve directory structure
-            find "$target_dir/$src_dir" -type f | while read -r file; do
-                blue "    📄 $(basename "$file")"
-            done
-        fi
-    done
-    
-    green "✅ Wallpaper files verified in port ROM"
-}
-
-# Feature: Extract and integrate wallpaper APKs with all dependencies
-install_3d_wallpaper_apks() {
-    blue "📱 Installing 3D Wallpaper APKs from ColorOS CN..."
-    
-    local target_dir="build/portrom/images"
-    local app_dir="$target_dir/my_product/app"
-    
-    mkdir -p "$app_dir"
-    
-    # Key wallpaper APK files that must be extracted
-    local wallpaper_apks=(
-        "com.oplus.theme.wallpaper3d"
-        "com.coloros.wallpaper"
-        "com.oplus.wallpaper.livewallpaper"
-    )
-    
-    blue "🎨 Searching for wallpaper APKs in extracted partitions..."
-    
-    for apk_pkg in "${wallpaper_apks[@]}"; do
-        local apk_path=$(find "$target_dir" -name "${apk_pkg}.apk" -o -type d -name "$apk_pkg" | head -1)
-        
-        if [[ -n "$apk_path" ]]; then
-            if [[ -d "$apk_path" ]]; then
-                blue "  ✓ Found wallpaper package directory: $apk_pkg"
-                # Ensure it's in my_product/app
-                if [[ ! -d "$app_dir/$apk_pkg" ]]; then
-                    cp -rf "$apk_path" "$app_dir/" || true
-                fi
-            elif [[ -f "$apk_path" ]]; then
-                blue "  ✓ Found wallpaper APK: $(basename "$apk_path")"
-                mkdir -p "$app_dir/$apk_pkg"
-                cp "$apk_path" "$app_dir/$apk_pkg/" || true
-            fi
-        else
-            yellow "  ⊘ Wallpaper APK not found: $apk_pkg"
-        fi
-    done
-    
-    # Re-sign wallpaper APKs if they were modified
-    for apk_pkg in "${wallpaper_apks[@]}"; do
-        if [[ -d "$app_dir/$apk_pkg" ]]; then
-            local apk_file=$(find "$app_dir/$apk_pkg" -name "*.apk" | head -1)
-            if [[ -f "$apk_file" ]]; then
-                blue "  🔏 Verifying APK signature: $(basename "$apk_file")"
-                # APK signing would happen here if modifications were made
-            fi
-        fi
-    done
-    
-    green "✅ Wallpaper APKs integrated successfully"
-}
-
-# Add wallpaper-related system features
-add_wallpaper_features() {
-    blue "🎨 Adding wallpaper feature flags to system..."
-    
-    # Add feature flags for wallpaper support
-    add_feature_v2 oplus_feature \
-        "oplus.wallpaper.3d^3D Wallpaper Support" \
-        "oplus.wallpaper.livepicker^Live Wallpaper Picker" \
-        "oplus.wallpaper.dynamic^Dynamic Wallpaper" \
-        "oplus.wallpaper.parallax^Parallax Scrolling"
-    
-    add_feature_v2 app_feature \
-        "oplus.wallpaper.3d.enabled^3D Wallpaper Enabled" \
-        "oplus.wallpaper.renderquality^High Quality Rendering"
-    
-    add_feature_v2 permission_feature \
-        "oplus.wallpaper.access^Access 3D Wallpapers" \
-        "oplus.wallpaper.read^Read Wallpaper Data" \
-        "oplus.wallpaper.manage^Manage Wallpapers"
-    
-    green "✅ Wallpaper features added to system configuration"
-}
-
-# Extract wallpaper metadata from build.prop
-extract_wallpaper_metadata() {
-    blue "📋 Extracting wallpaper metadata from port ROM..."
-    
-    local portrom_prop="build/portrom/images/my_product/build.prop"
-    local wallpaper_meta="tmp/wallpaper_metadata.txt"
-    
-    mkdir -p tmp
-    
-    if [[ -f "$portrom_prop" ]]; then
-        blue "  Scanning for wallpaper-related properties..."
-        grep -E "(wallpaper|3d|live)" "$portrom_prop" | tee "$wallpaper_meta" | head -20
-        
-        local count=$(grep -c -E "(wallpaper|3d|live)" "$portrom_prop" 2>/dev/null || echo 0)
-        blue "  📊 Found $count wallpaper-related properties"
-    fi
-}
-
-# Comprehensive 3D wallpaper porting function (all-in-one)
-port_3d_wallpapers_full() {
-    blue "╔════════════════════════════════════════════════════════╗"
-    blue "║   3D Wallpaper Full Porting Module (ColorOS CN)       ║"
-    blue "╚════════════════════════════════════════════════════════╝"
-    
-    # Step 1: Extract wallpaper packages from base
-    extract_3d_wallpapers
-    
-    # Step 2: Copy wallpaper-related files from portrom
-    copy_wallpaper_from_portrom
-    
-    # Step 3: Install wallpaper APKs with dependencies
-    install_3d_wallpaper_apks
-    
-    # Step 4: Configure wallpaper system properties
-    integrate_3d_wallpaper_configs
-    
-    # Step 5: Add feature flags
-    add_wallpaper_features
-    
-    # Step 6: Extract and log metadata
-    extract_wallpaper_metadata
-    
-    green "╔════════════════════════════════════════════════════════╗"
-    green "║   ✅ 3D Wallpaper Integration Complete!              ║"
-    green "║   • Wallpaper APKs: Extracted & integrated            ║"
-    green "║   • 3D Models: Copied from port ROM                   ║"
-    green "║   • System Properties: Configured                     ║"
-    green "║   • Features: Added to manifest                       ║"
-    green "╚════════════════════════════════════════════════════════╝"
-}
-
-# ╔═══════════════════════════════════════════════════════════════╗
-# ║   Google Apps Integration (GApps) — External Source Required   ║
-# ║   ⚠️  ColorOS CN lacks GApps — must download from external     ║
-# ║   Sources: MindTheGapps, OpenGApps, or custom repositories    ║
-# ╚═══════════════════════════════════════════════════════════════╝
-
-# Detect if port ROM is ColorOS CN (lacks Google Apps)
+# is_coloros_cn [build_prop_path]
+# Returns 0 (true) only when:
+#   • ro.rom.zone=cn  OR  fingerprint/display_id contains "CN"
+#   • AND ro.com.google.clientidbase is NOT already present (no GApps yet)
 is_coloros_cn() {
     local build_prop_path="${1:-build/portrom/images/my_manifest/build.prop}"
-    
+
     if [[ ! -f "$build_prop_path" ]]; then
         yellow "⚠️  build.prop not found: $build_prop_path"
         return 1
     fi
-    
-    # Check for ColorOS CN indicators
-    # CN ROMs have: ro.rom.zone=cn, ro.build.fingerprint contains CN markers, etc.
-    local rom_zone=$(grep "^ro.rom.zone=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
-    local fingerprint=$(grep "^ro.build.fingerprint=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
-    local build_display=$(grep "^ro.build.display.id=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
-    local rom_type=$(grep "^ro.rom.type=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
-    
-    # Check if it's CN variant.
-    # Match on explicit cn zone OR CN marker in fingerprint/display ID.
-    # Do NOT match on ro.rom.type containing "ColorOS" — Global ROMs also carry that.
+
+    local rom_zone fingerprint build_display
+    rom_zone=$(grep "^ro.rom.zone=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
+    fingerprint=$(grep "^ro.build.fingerprint=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
+    build_display=$(grep "^ro.build.display.id=" "$build_prop_path" 2>/dev/null | cut -d'=' -f2 | tr -d '\r')
+
     local is_cn=false
     if [[ "$rom_zone" == "cn" ]] || [[ "$fingerprint" == *"CN"* ]] || [[ "$build_display" == *"CN"* ]]; then
         is_cn=true
     fi
+
     if [[ "$is_cn" == true ]]; then
-        # Final guard: if ro.com.google.clientidbase is already set, GApps exist — skip
+        # Already has GApps → skip
         if ! grep -q "ro.com.google.clientidbase" "$build_prop_path" 2>/dev/null; then
-            return 0  # Confirmed COS CN with no GApps
+            return 0  # Confirmed CN with no GApps
         fi
     fi
-    
-    return 1  # Not COS CN or already has GApps
+    return 1
 }
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  GApps Validation                                                        ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
 validate_gapps_package() {
     local gapps_zip="${1:-}"
-    
+
     blue "🔍 Validating GApps package structure..."
-    
+
     if [[ -z "$gapps_zip" ]] || [[ ! -f "$gapps_zip" ]]; then
         error "❌ GApps ZIP file not found: $gapps_zip"
         error "   ColorOS CN ROMs do NOT include Google Apps"
-        error "   You MUST download GApps from external sources:"
-        error "   • MindTheGapps (https://mindthegapps.com)"
-        error "   • OpenGApps (https://opengapps.org)"
-        error "   • Custom APK repository"
+        error "   Download GApps from: https://mindthegapps.com  OR  https://opengapps.org"
         return 1
     fi
-    
-    # Extract and validate structure
+
     mkdir -p tmp/gapps_validate
     unzip -l "$gapps_zip" > tmp/gapps_validate/manifest.txt 2>/dev/null || {
         error "❌ Failed to read GApps ZIP structure"
         return 1
     }
-    
-    # Check for required GApps structure
-    local has_system=false
-    local has_my_product=false
-    local has_system_ext=false
-    
-    if grep -q "^.*system/" tmp/gapps_validate/manifest.txt; then
-        has_system=true
-        blue "  ✓ Found system partition files"
-    fi
-    
-    if grep -q "^.*my_product/" tmp/gapps_validate/manifest.txt; then
-        has_my_product=true
-        blue "  ✓ Found my_product partition files"
-    fi
-    
-    if grep -q "^.*system_ext/" tmp/gapps_validate/manifest.txt; then
-        has_system_ext=true
-        blue "  ✓ Found system_ext partition files"
-    fi
-    
-    # Check for core GApps apps
+
+    local has_partition=false
+    for part in system my_product product system_ext; do
+        if grep -q "^.*${part}/" tmp/gapps_validate/manifest.txt; then
+            has_partition=true
+            blue "  ✓ Found ${part} partition files"
+        fi
+    done
+
     if grep -q "com\.google\.android\.gms\|com\.android\.vending" tmp/gapps_validate/manifest.txt; then
         blue "  ✓ Found Google Play Services (GMS)"
     else
         yellow "  ⚠️  Warning: Google Play Services not detected in GApps package"
     fi
-    
-    for app in "chrome" "drive" "maps" "photos" "pay"; do
-        if grep -q "$app" tmp/gapps_validate/manifest.txt; then
-            blue "  ✓ Found: $app"
-        fi
-    done
-    
+
     rm -rf tmp/gapps_validate
-    
-    if [[ "$has_system" == "true" ]] || [[ "$has_my_product" == "true" ]] || [[ "$has_system_ext" == "true" ]]; then
+
+    if [[ "$has_partition" == true ]]; then
         green "✅ GApps package structure validated"
         return 0
     else
@@ -1242,15 +933,22 @@ validate_gapps_package() {
     fi
 }
 
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  GApps Installation — multi-partition aware                              ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
 install_google_apps() {
     local gapps_zip="${1:-}"
     local target_dir="build/portrom/images"
-    
+    # Resolve actual system root (handles system/ vs system/system layouts)
+    local system_root="$target_dir/system"
+    if [[ -d "$target_dir/system/system" ]] || [[ -f "$target_dir/system/system/build.prop" ]]; then
+        system_root="$target_dir/system/system"
+    fi
+
     blue "🔵 ━━━ Google Apps Installation Module ━━━"
     blue "ℹ️  ColorOS CN ROMs do NOT include Google Apps"
-    blue "   GApps MUST be obtained from external sources"
-    
-    # ⚠️  VALIDATE GApps package first
+
     if ! validate_gapps_package "$gapps_zip"; then
         error "❌ Invalid or missing GApps package"
         error "   Usage: install_google_apps '/path/to/gapps_package.zip'"
@@ -1259,11 +957,9 @@ install_google_apps() {
         error "   1. MindTheGapps: https://mindthegapps.com"
         error "   2. OpenGApps: https://opengapps.org"
         error "   3. Select: arm64, Android 13-16 (depending on your ROM)"
-        error ""
         return 1
     fi
-    
-    # Custom GApps ZIP found — extract and apply
+
     blue "📥 Extracting GApps package: $gapps_zip"
     mkdir -p tmp/gapps_extract
     unzip -o "$gapps_zip" -d tmp/gapps_extract || {
@@ -1271,45 +967,111 @@ install_google_apps() {
         rm -rf tmp/gapps_extract
         return 1
     }
-    
+
     local gapps_applied=false
-    
-    # Copy GApps from system partition
-    if [[ -d "tmp/gapps_extract/system" ]]; then
-        blue "📂 Copying GApps from system partition..."
-        mkdir -p "$target_dir/system"
-        cp -rf tmp/gapps_extract/system/* "$target_dir/system/" 2>/dev/null || true
-        gapps_applied=true
-        green "  ✓ System partition: $([[ -d "$target_dir/system/app" ]] && echo "$(find "$target_dir/system/app" -maxdepth 1 -type d | wc -l) apps")"
+    local gapps_root="tmp/gapps_extract"
+    local mtg_root=""
+
+    # MindTheGapps layout keeps all partitions under system/ (e.g. system/product, system/system_ext).
+    if [[ -d "$gapps_root/system/product" ]] || [[ -d "$gapps_root/system/system_ext" ]] || [[ -d "$gapps_root/system/my_product" ]]; then
+        mtg_root="$gapps_root/system"
     fi
-    
-    # Copy GApps from my_product partition
-    if [[ -d "tmp/gapps_extract/my_product" ]]; then
-        blue "📂 Copying GApps from my_product partition..."
-        mkdir -p "$target_dir/my_product"
-        cp -rf tmp/gapps_extract/my_product/* "$target_dir/my_product/" 2>/dev/null || true
+
+    _apply_gapps_partition() {
+        local part_name="$1"
+        local src_path="$2"
+        local dst_path="$3"
+
+        [[ -d "$src_path" ]] || return 1
+
+        blue "📂 Copying GApps from ${part_name} partition..."
+        mkdir -p "$dst_path"
+        cp -rf "$src_path"/. "$dst_path"/ 2>/dev/null || true
         gapps_applied=true
-        green "  ✓ my_product partition: $([[ -d "$target_dir/my_product/app" ]] && echo "$(find "$target_dir/my_product/app" -maxdepth 1 -type d | wc -l) apps")"
+        green "  ✓ ${part_name} partition applied"
+        return 0
+    }
+
+    local system_applied=false
+
+    if [[ -n "$mtg_root" ]]; then
+        # Handle nested system payload if present: system/system -> real system partition.
+        if _apply_gapps_partition "system" "$mtg_root/system" "$system_root"; then
+            system_applied=true
+        else
+            # Some packages place system files directly in system/; exclude nested partition dirs.
+            local copied_any=false
+            blue "📂 Copying GApps from system partition..."
+            mkdir -p "$system_root"
+            shopt -s nullglob dotglob
+            for entry in "$mtg_root"/*; do
+                local entry_name
+                entry_name=$(basename "$entry")
+                case "$entry_name" in
+                    product|system_ext|my_product|vendor|odm)
+                        continue
+                        ;;
+                esac
+                cp -rf "$entry" "$system_root"/ 2>/dev/null || true
+                copied_any=true
+            done
+            shopt -u nullglob dotglob
+
+            if [[ "$copied_any" == true ]]; then
+                gapps_applied=true
+                system_applied=true
+                green "  ✓ system partition applied"
+            fi
+        fi
+
+        _apply_gapps_partition "product" "$mtg_root/product" "$target_dir/product" || true
+        _apply_gapps_partition "system_ext" "$mtg_root/system_ext" "$target_dir/system_ext" || true
+        _apply_gapps_partition "my_product" "$mtg_root/my_product" "$target_dir/my_product" || true
     fi
-    
-    # Copy GApps from system_ext partition
-    if [[ -d "tmp/gapps_extract/system_ext" ]]; then
-        blue "📂 Copying GApps from system_ext partition..."
-        mkdir -p "$target_dir/system_ext"
-        cp -rf tmp/gapps_extract/system_ext/* "$target_dir/system_ext/" 2>/dev/null || true
-        gapps_applied=true
-        green "  ✓ system_ext partition: $([[ -d "$target_dir/system_ext/app" ]] && echo "$(find "$target_dir/system_ext/app" -maxdepth 1 -type d | wc -l) apps")"
-    fi
-    
+
+    for part in system my_product product system_ext; do
+        local src_dir=""
+        # Fallback for traditional multi-partition layouts.
+        case "$part" in
+            system)
+                [[ "$system_applied" == true ]] && continue
+                if [[ -d "$gapps_root/system/system" ]]; then
+                    src_dir="$gapps_root/system/system"
+                elif [[ -d "$gapps_root/system" ]] && [[ -z "$mtg_root" ]]; then
+                    src_dir="$gapps_root/system"
+                elif [[ -d "$gapps_root/system" ]]; then
+                    src_dir="$gapps_root/system"
+                fi
+                ;;
+            *)
+                if [[ -d "$gapps_root/$part" ]]; then
+                    src_dir="$gapps_root/$part"
+                fi
+                ;;
+        esac
+
+        if [[ -n "$src_dir" ]]; then
+            local dst_dir="$target_dir/$part"
+            [[ "$part" == "system" ]] && dst_dir="$system_root"
+            _apply_gapps_partition "$part" "$src_dir" "$dst_dir" || true
+        fi
+    done
+
+    unset -f _apply_gapps_partition 2>/dev/null || true
+
     rm -rf tmp/gapps_extract
-    
-    if [[ "$gapps_applied" == "false" ]]; then
+
+    if [[ "$gapps_applied" == false ]]; then
         error "❌ No GApps files found in package"
         return 1
     fi
-    
+
     green "✅ Google Apps successfully integrated into ROM"
 }
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  MindTheGapps Auto-Downloader — per-version repo layout                  ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
 download_mindthegapps() {
     local android_version="${1:-13}"
@@ -1320,7 +1082,6 @@ download_mindthegapps() {
 
     mkdir -p "$(dirname "$output_file")"
 
-    # Validate Android version
     case "$android_version" in
         13|14|15|16) ;;
         *)
@@ -1330,17 +1091,12 @@ download_mindthegapps() {
             ;;
     esac
 
-    # MindTheGapps uses per-version repos: MindTheGapps/16.0.0-arm64, etc.
-    # Each repo has its own releases page — not a single monorepo.
     local github_repo="MindTheGapps/${android_version}.0.0-arm64"
     local api_url="https://api.github.com/repos/${github_repo}/releases/latest"
 
     blue "   Fetching latest release info: ${api_url}"
 
-    # Fetch release JSON and extract the .zip asset download URL.
-    # Filter to *arm64*.zip to avoid picking up checksums or wrong arch assets.
-    local download_url=""
-    local api_response=""
+    local download_url="" api_response=""
     if command -v curl &>/dev/null; then
         api_response=$(curl -fsSL --retry 3 "$api_url" 2>/dev/null)
     elif command -v wget &>/dev/null; then
@@ -1356,7 +1112,6 @@ download_mindthegapps() {
         return 1
     fi
 
-    # Pick the first browser_download_url that ends in .zip (arm64 repo only has one zip)
     download_url=$(printf '%s' "$api_response" \
         | grep -o '"browser_download_url": *"[^"]*\.zip"' \
         | head -1 \
@@ -1365,13 +1120,12 @@ download_mindthegapps() {
     if [[ -z "$download_url" ]]; then
         error "❌ Could not parse download URL from GitHub API response"
         error "   Repo: https://github.com/${github_repo}/releases"
-        error "   You can download manually and place the zip at: $output_file"
+        error "   Place the zip manually at: $output_file"
         return 1
     fi
 
     blue "   URL: $download_url"
 
-    # Download with resume support
     if command -v curl &>/dev/null; then
         curl -L --retry 3 --retry-delay 3 --connect-timeout 20 \
              -o "$output_file" "$download_url" --progress-bar || {
@@ -1405,133 +1159,10 @@ download_mindthegapps() {
     return 0
 }
 
-download_opengapps() {
-    local arch="${1:-arm64}"
-    local android_version="${2:-13}"
-    local variant="${3:-stock}"
-    local output_file="${4:-tmp/OpenGApps_${variant}.zip}"
-    
-    blue "🌐 OpenGApps Auto-Downloader"
-    blue ""
-    blue "📥 Downloading OpenGApps ($variant) for Android $android_version ($arch)..."
-    
-    mkdir -p "$(dirname "$output_file")"
-    
-    # Map Android version to build version OpenGApps uses
-    local build_version=""
-    case "$android_version" in
-        13) build_version="13.0" ;;
-        14) build_version="14.0" ;;
-        15) build_version="15.0" ;;
-        16) build_version="16.0" ;;
-        *)
-            yellow "⚠️  Unsupported Android version: $android_version"
-            blue "   Supported: 13, 14, 15, 16"
-            return 1
-            ;;
-    esac
-    
-    # Validate variant
-    case "$variant" in
-        pico|nano|micro|mini|stock|full|super) ;;
-        *)
-            yellow "⚠️  Unknown variant: $variant"
-            blue "   Supported: pico, nano, micro, mini, stock, full, super"
-            return 1
-            ;;
-    esac
-    
-    # OpenGApps CDN URL structure: https://sourceforge.net/projects/opengapps/files/arm64/OpenGApps-arm64-13.0-{variant}-{date}.zip/download
-    # We'll use the latest version from the GitHub releases API
-    local download_url="https://github.com/opengapps/opengapps/releases/download/${android_version}-GAPPS-latest/open_gapps-${arch}-${build_version}-${variant}-latest.zip"
-    
-    # Alternative: Direct SourceForge URL (more reliable)
-    download_url="https://sourceforge.net/projects/opengapps/files/${arch}/"
-    
-    blue "   Attempting to download from official sources..."
-    blue "   This may take 2-10 minutes depending on variant..."
-    
-    # Attempt download with curl first, fallback to wget
-    if command -v curl &> /dev/null; then
-        blue "   Using curl for download..."
-        curl -L -o "$output_file" -C - --progress-bar \
-            "https://github.com/opengapps/opengapps/releases/download/${build_version}-GAPPS-latest/open_gapps-${arch}-${build_version}-${variant}-*.zip" 2>/dev/null || {
-            yellow "⚠️  GitHub mirror unavailable, trying SourceForge..."
-            curl -L -o "$output_file" -C - --progress-bar \
-                "https://sourceforge.net/projects/opengapps/files/${arch}/" 2>/dev/null || {
-                error "Failed to download OpenGApps"
-                rm -f "$output_file"
-                return 1
-            }
-        }
-    elif command -v wget &> /dev/null; then
-        blue "   Using wget for download..."
-        wget -O "$output_file" -c --show-progress \
-            "https://github.com/opengapps/opengapps/releases/download/${build_version}-GAPPS-latest/open_gapps-${arch}-${build_version}-${variant}-*.zip" 2>/dev/null || {
-            yellow "⚠️  GitHub mirror unavailable, trying SourceForge..."
-            wget -O "$output_file" -c --show-progress \
-                "https://sourceforge.net/projects/opengapps/files/${arch}/" 2>/dev/null || {
-                error "Failed to download OpenGApps"
-                rm -f "$output_file"
-                return 1
-            }
-        }
-    else
-        error "❌ Neither curl nor wget available"
-        error "   Please install curl or wget and try again"
-        return 1
-    fi
-    
-    # Verify download
-    if [[ ! -f "$output_file" ]]; then
-        error "❌ Download verification failed"
-        yellow "⚠️  Manual download may be required:"
-        yellow "   Visit: https://opengapps.org"
-        yellow "   Select: arm64, Android $android_version, Variant: $variant"
-        return 1
-    fi
-    
-    local file_size=$(du -h "$output_file" | cut -f1)
-    green "✅ OpenGApps ($variant) downloaded successfully"
-    green "   Location: $output_file"
-    green "   Size: $file_size"
-}
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  Google Play Services Configuration                                       ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
 
-setup_gapps_for_cos_cn() {
-    blue "╔════════════════════════════════════════════════════════╗"
-    blue "║   GApps Setup Guide for ColorOS CN Porting            ║"
-    blue "╚════════════════════════════════════════════════════════╝"
-    blue ""
-    blue "🎯 Which GApps source would you like to use?"
-    blue ""
-    blue "Option 1️⃣  — MindTheGapps (Recommended)"
-    blue "  • Auto-downloads in seconds"
-    blue "  • Specifically designed for GMS-less ROMs"
-    blue "  • Best compatibility with ColorOS CN"
-    blue "  • Usage: download_mindthegapps 13 tmp/gapps.zip"
-    blue ""
-    blue "Option 2️⃣  — OpenGApps (Alternative)"
-    blue "  • More variants available (pico/nano/micro/mini/stock/full)"
-    blue "  • Can select package size (stock recommended)"
-    blue "  • Usage: download_opengapps arm64 13 stock tmp/gapps.zip"
-    blue ""
-    blue "📋 Supported Android Versions:"
-    blue "  • 13, 14, 15, 16"
-    blue ""
-    blue "📋 To automatically download and use:"
-    blue "  1️⃣  download_mindthegapps 13 tmp/gapps.zip"
-    blue "  2️⃣  sudo ./port.sh <baserom> <portrom> --- tmp/gapps.zip"
-    blue ""
-    blue "⚠️  Important Notes:"
-    blue "  • ColorOS CN ROMs have NO Google Apps pre-installed"
-    blue "  • GApps are REQUIRED for Play Store functionality"
-    blue "  • ARM64 architecture REQUIRED for OP9/OP9Pro"
-    blue "  • Requires curl or wget for downloads"
-    blue ""
-}
-
-# Enable Google Play Services and associated APIs
-# Usage: configure_google_play_services [android_version]
 configure_google_play_services() {
     local android_version="${1:-13}"
     blue "🔌 Configuring Google Play Services (Android ${android_version})..."
@@ -1539,8 +1170,6 @@ configure_google_play_services() {
     local gapps_prop="build/portrom/images/my_product/etc/bruce/build.prop"
     mkdir -p "$(dirname "$gapps_prop")"
 
-    # gmsversion format is "<api_level>.0" — derive from android version
-    # Android 13=33, 14=34, 15=35, 16=36
     local gms_ver="${android_version}_$(date +%Y%m)"
 
     cat >> "$gapps_prop" << EOF
@@ -1573,26 +1202,59 @@ EOF
     green "✅ Google Play Services configured (gmsversion=${gms_ver})"
 }
 
-# Auto-download and install GApps if port ROM is ColorOS CN
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  GApps Presence Verification                                              ║
+# ║  Returns 0 if both GmsCore and Phonesky are present in the image         ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+verify_gapps_presence() {
+    local has_core=false has_store=false
+
+    # GmsCore search paths — MindTheGapps, OpenGApps, and custom layouts all use different dirs
+    for d in \
+        "build/portrom/images/system/system/priv-app/GmsCore" \
+        "build/portrom/images/system/system/priv-app/PrebuiltGmsCore" \
+        "build/portrom/images/product/priv-app/GmsCore" \
+        "build/portrom/images/my_product/priv-app/GmsCore"; do
+        [[ -d "$d" ]] && { has_core=true; break; }
+    done
+
+    # Phonesky (Play Store) search paths
+    for d in \
+        "build/portrom/images/system/system/priv-app/Phonesky" \
+        "build/portrom/images/system/system/app/Phonesky" \
+        "build/portrom/images/product/priv-app/Phonesky" \
+        "build/portrom/images/product/app/Phonesky" \
+        "build/portrom/images/my_product/priv-app/Phonesky"; do
+        [[ -d "$d" ]] && { has_store=true; break; }
+    done
+
+    [[ "$has_core" == true && "$has_store" == true ]]
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  Auto-Download + Install GApps for ColorOS CN                            ║
+# ║  Retries once on failure, hard-exits on second failure                   ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
 auto_download_gapps_for_coscn() {
     local build_prop_path="${1:-build/portrom/images/my_manifest/build.prop}"
     local android_version="${2:-13}"
     local gapps_output="${3:-tmp/MindTheGapps_auto.zip}"
-    
+
     blue "🔍 Checking if port ROM is ColorOS CN..."
-    
-    # Check if it's COS CN
+
     if is_coloros_cn "$build_prop_path"; then
         blue "✅ Detected ColorOS CN ROM (missing Google Apps)"
         blue "📥 Auto-downloading MindTheGapps for Android $android_version..."
-        
-        # Auto-download MindTheGapps
+
         if download_mindthegapps "$android_version" "$gapps_output"; then
             blue "✅ GApps download successful: $gapps_output"
             blue "📱 Installing Google Apps into ROM..."
-            
-            # Install the downloaded GApps
+
             if install_google_apps "$gapps_output"; then
+                # Configure Play Services props
+                configure_google_play_services "$android_version"
                 green "✅ Google Apps automatically integrated for ColorOS CN"
                 return 0
             else
@@ -1610,4 +1272,180 @@ auto_download_gapps_for_coscn() {
     fi
 }
 
-trap 'error "Script interrupted! Exiting to prevent accidental deletion." ; exit 1' SIGINTs
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  3D Wallpaper Integration — ColorOS CN Feature                           ║
+# ║  FIXED: stash wallpaper overlays BEFORE res wipe, not after              ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# Call this BEFORE "rm -rf build/portrom/images/my_product/res/*" in port.sh
+# to preserve 3D/live wallpaper overlay APKs that would otherwise be lost.
+stash_portrom_wallpaper_overlays() {
+    [[ "${baseIsColorOSCN}" != true ]] && return 0
+
+    blue "💾 3D wallpaper: stashing portrom overlays before res wipe..."
+
+    rm -rf tmp/portrom_wallpaper_res_backup
+    mkdir -p tmp/portrom_wallpaper_res_backup
+
+    # Save every overlay APK whose name contains 'wallpaper' (case-insensitive)
+    local stashed=0
+    while IFS= read -r f; do
+        cp -rf "${f}" tmp/portrom_wallpaper_res_backup/
+        ((stashed++)) || true
+    done < <(find build/portrom/images/my_product/res/ -maxdepth 1 \
+        \( -iname "*wallpaper*" -o -iname "*Wallpapers*" -o -iname "*WallpaperStyle*" \) 2>/dev/null)
+
+    # Stash 3D media asset directories
+    rm -rf tmp/portrom_wallpaper_media_backup
+    mkdir -p tmp/portrom_wallpaper_media_backup
+    for media_dir in \
+        "build/portrom/images/my_product/media/wallpaper3d" \
+        "build/portrom/images/my_product/media/wallpaper_3d" \
+        "build/portrom/images/my_product/media/live_wallpaper_res" \
+        "build/portrom/images/my_product/media/livewallpaper" \
+        "build/portrom/images/my_product/media/wallpapers"; do
+        if [[ -d "${media_dir}" ]]; then
+            cp -rf "${media_dir}" tmp/portrom_wallpaper_media_backup/
+        fi
+    done
+
+    # Stash WallpaperPicker / WallpaperStyle APKs from app/priv-app dirs
+    rm -rf tmp/portrom_wallpaper_apk_backup
+    mkdir -p tmp/portrom_wallpaper_apk_backup
+    while IFS= read -r apk_dir; do
+        local pkg_name
+        pkg_name=$(basename "$apk_dir")
+        cp -rf "$apk_dir" tmp/portrom_wallpaper_apk_backup/
+    done < <(find build/portrom/images/my_product/ -maxdepth 3 -type d \
+        \( -iname "*WallpaperPicker*" -o -iname "*WallpaperStyle*" \
+           -o -iname "*com.oplus.wallpapers*" -o -iname "*com.coloros.wallpaper*" \
+           -o -iname "*com.oplus.theme.wallpaper3d*" \) 2>/dev/null | head -20)
+
+    green "3D wallpaper: stashed ${stashed} overlay APK(s) + media dirs + wallpaper packages"
+}
+
+# Call this AFTER "cp -rf build/baserom/images/my_product/res/* ..." in port.sh
+# to restore 3D/live wallpaper overlays over the CN base res.
+restore_portrom_wallpaper_overlays() {
+    [[ "${baseIsColorOSCN}" != true ]] && return 0
+
+    blue "♻️  3D wallpaper: restoring portrom overlays over CN res..."
+
+    # Restore overlay APKs into res/
+    if [[ -d tmp/portrom_wallpaper_res_backup ]] && \
+       [[ -n "$(ls -A tmp/portrom_wallpaper_res_backup 2>/dev/null)" ]]; then
+        cp -rf tmp/portrom_wallpaper_res_backup/* \
+            build/portrom/images/my_product/res/
+        local cnt
+        cnt=$(ls tmp/portrom_wallpaper_res_backup | wc -l)
+        green "3D wallpaper: restored ${cnt} overlay APK(s) into res/"
+    fi
+
+    # Restore media asset dirs
+    if [[ -d tmp/portrom_wallpaper_media_backup ]] && \
+       [[ -n "$(ls -A tmp/portrom_wallpaper_media_backup 2>/dev/null)" ]]; then
+        cp -rf tmp/portrom_wallpaper_media_backup/* \
+            build/portrom/images/my_product/media/
+        green "3D wallpaper: restored media asset dirs"
+    fi
+
+    # Restore wallpaper APK packages
+    if [[ -d tmp/portrom_wallpaper_apk_backup ]] && \
+       [[ -n "$(ls -A tmp/portrom_wallpaper_apk_backup 2>/dev/null)" ]]; then
+        cp -rf tmp/portrom_wallpaper_apk_backup/* \
+            build/portrom/images/my_product/app/ 2>/dev/null || true
+        green "3D wallpaper: restored wallpaper packages"
+    fi
+
+    # ── Ensure wallpaper feature flags are set for CN base ports ─────────────
+    # Single-quoted strings prevent shell expansion of inner quotes
+    add_feature_v2 app_feature \
+        'com.oplus.wallpapers.support_3d_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.download_3d_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.3d_wallpaper_support^^args="boolean:true"' \
+        'com.oplus.wallpapers.support_live_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.live_wallpaper_download^^args="boolean:true"' \
+        'os.personalization.wallpaper.live.ripple.enable^^args="boolean:true"' \
+        'com.android.wallpaper.picker.live_wallpaper_support^^args="boolean:true"' \
+        'com.oplus.theme.wallpaper_style_enable^^args="boolean:true"' \
+        'com.oplus.wallpapers.wallpaper_style_support^^args="boolean:true"' \
+        'com.oplus.wallpapers.ai_camera_movement^^args="boolean:true"' \
+        'com.oplus.wallpapers.livephoto_wallpaper^^args="boolean:true"' \
+        'com.oplus.wallpapers.livephoto_wallpaper_support_hdr^^args="boolean:true"' \
+        'com.oplus.wallpapers.livephoto_wallpaper_support_4k^^args="boolean:true"'
+
+    add_feature_v2 oplus_feature \
+        "oplus.software.wallpaper.3d_wallpaper_support" \
+        "oplus.software.wallpaper.live_wallpaper_support" \
+        "oplus.software.wallpaper.wallpaper_style_support"
+
+    # ── System props for wallpaper rendering ─────────────────────────────────
+    local wp_prop="build/portrom/images/my_product/etc/bruce/build.prop"
+    mkdir -p "$(dirname "$wp_prop")"
+    {
+        echo ""
+        echo "# ━━━ 3D Wallpaper / Wallpapers & Style (ColorOS CN port) ━━━"
+        echo "ro.oplus.wallpaper.3d.enabled=true"
+        echo "ro.oplus.wallpaper.3d.support=true"
+        echo "ro.livewallpaper.dynamic.support=true"
+        echo "ro.oplus.livewallpaper.support=true"
+        echo "ro.oplus.wallpaper.parallax.support=true"
+        echo "ro.oplus.wallpaper.dark_mode.support=true"
+        echo "ro.oplus.wallpaper.provider=com.coloros.wallpaper"
+        echo "ro.oplus.wallpaper.render.quality=high"
+        echo "persist.sys.wallpaper.parallax=1"
+    } >> "$wp_prop"
+
+    green "✅ 3D wallpaper integration complete (overlays + media + flags + props)"
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  Full 3D Wallpaper Port (legacy all-in-one, kept for compatibility)      ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+port_3d_wallpapers_full() {
+    blue "╔════════════════════════════════════════════════════════╗"
+    blue "║   3D Wallpaper Full Porting Module (ColorOS CN)       ║"
+    blue "╚════════════════════════════════════════════════════════╝"
+
+    local target_dir="build/portrom/images"
+    local app_dir="$target_dir/my_product/app"
+    local base_wallpaper_dir="build/baserom/images/my_product/app"
+    mkdir -p "$app_dir"
+
+    # Copy wallpaper packages from base if missing from port
+    local wallpaper_packages=(
+        "com.oplus.theme.wallpaper3d"
+        "com.coloros.wallpaper"
+        "com.oplus.wallpaper"
+        "com.oplus.wallpaper.livewallpaper"
+        "com.oplus.wallpaperservice"
+        "com.oppo.theme"
+        "com.android.wallpaper.livepicker"
+    )
+
+    blue "🎨 Verifying 3D wallpaper packages..."
+    for pkg in "${wallpaper_packages[@]}"; do
+        local port_pkg base_pkg
+        port_pkg=$(find "$app_dir" -maxdepth 1 -type d -name "$pkg" 2>/dev/null | head -1)
+        base_pkg=$(find "$base_wallpaper_dir" -maxdepth 1 -type d -name "$pkg" 2>/dev/null | head -1)
+
+        if [[ -d "$port_pkg" ]]; then
+            blue "  ✓ Present in port ROM: $pkg"
+        elif [[ -d "$base_pkg" ]]; then
+            blue "  ↺ Copying fallback from base: $pkg"
+            cp -rf "$base_pkg" "$app_dir/" || true
+        else
+            yellow "  ⊘ Not found: $pkg"
+        fi
+    done
+
+    # Now call restore to set feature flags and props
+    restore_portrom_wallpaper_overlays
+
+    green "╔════════════════════════════════════════════════════════╗"
+    green "║   ✅ 3D Wallpaper Integration Complete!              ║"
+    green "╚════════════════════════════════════════════════════════╝"
+}
+
+trap 'error "Script interrupted! Exiting to prevent accidental deletion." ; exit 1' SIGINT

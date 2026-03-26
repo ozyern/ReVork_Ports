@@ -1630,12 +1630,20 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.bt.a2dp_offload_cap=sbc-aptx-aptxhd-aac-ldac"
         set_prop "$VENDOR_PATH/default.prop"  "vendor.audio.feature.a2dp_offload.enable=true"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.audio.fluence.speaker=true"
-        # Battery current limit: prevent excessive charging heat
-        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.enable_tank_mode=1"
-        # Charging optimization: reduce heat during heavy use + charging
+        # Keep normal charging policy enabled so VOOC/Warp fast-charge is not capped by tank mode.
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.enable_tank_mode=0"
+        # Charging optimization: thermal guardrails while preserving fast-charge capability.
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.thermal.enable_charge_cooling=1"
-        # FastCharge optimization: avoid thermal spike
-        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.fastcharge_thermal_limit=450"
+        # Raise thermal ceiling slightly to allow stable high-power charging before taper.
+        set_prop "$VENDOR_PATH/default.prop"  "persist.battery.fastcharge_thermal_limit=470"
+        # OPlus fast-charge capability flags used on OOS/ColorOS builds (ignored safely if unsupported).
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.oplus.fastchg.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.oplus.supervooc.support=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.oplus.charge.max_power_w=65"
+        # Runtime toggles for manual performance/charging profile control.
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.op9.dynamic_profile=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.op9.profile=balanced"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.op9.charge_mode=adaptive"
 
         # ── Display power management
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.display.idle_time=0"
@@ -1650,13 +1658,14 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         # ── SurfaceFlinger idle/touch timers (per-device panel type)
         if [[ "${is_op9pro}" == true ]]; then
             # OP9 Pro: LTPO 120Hz QHD+ — SF can drop to 1Hz idle; critical battery saving
-            # idle_timer_ms=500: drop refresh after 500ms of no animation
-            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_idle_timer_ms=500"
-            # 200ms of 120Hz after any touch — snappy feel, then back to idle rate
-            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_touch_timer_ms=200"
-            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_display_power_timer_ms=1000"
-            # 30fps idle — LTPO HW supports this; halves panel self-refresh power on static screen
-            set_prop "$VENDOR_PATH/default.prop"  "vendor.display.idle_fps=30"
+            # Keep high refresh active a little longer during UI navigation/app opening.
+            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_idle_timer_ms=650"
+            # Hold touch boost window longer to avoid first-frame downshift during launches.
+            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_touch_timer_ms=300"
+            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_display_power_timer_ms=1200"
+            # 45fps idle keeps LTPO efficient while reducing visible refresh jumps.
+            set_prop "$VENDOR_PATH/default.prop"  "vendor.display.idle_fps=45"
+            set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.use_content_detection_for_refresh_rate=true"
         elif [[ "${is_op9r}" == true || "${is_op9rt}" == true ]]; then
             # OP9R / 9RT: fixed 90Hz FHD+ AMOLED, no LTPO hardware
             # No idle_fps drop possible — but still set idle timer so SF stops waking early
@@ -1794,8 +1803,8 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         # Additional battery optimizations
         set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.usb.config=mtp,adb"
         set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.usb.config=mtp,adb"
-        # Reduce USB power delivery during gaming
-        set_prop "$VENDOR_PATH/default.prop"  "vendor.usb.power_limit_gaming=500"
+        # Reduce USB power delivery during gaming without collapsing charging speed.
+        set_prop "$VENDOR_PATH/default.prop"  "vendor.usb.power_limit_gaming=1800"
         # Background app throttle: reduce power drain significantly  
         set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.am.reschedule_service=1"
         # Memory pressure stalling: prevent jank from memory churn
@@ -1829,6 +1838,8 @@ on boot
     write /proc/sys/kernel/sched_boost_no_override 1
     # Load balancer in smaller batches — fewer 2ms latency spikes
     write /proc/sys/kernel/sched_nr_migrate 8
+    # Slightly lower wakeup granularity improves app-open thread dispatch latency.
+    write /proc/sys/kernel/sched_wakeup_granularity_ns 1500000
 
     # ── WALT scheduler thresholds ─────────────────────────────────────────────
     write /proc/sys/kernel/sched_small_task 20
@@ -1912,7 +1923,7 @@ on boot
 
     # ── cpuset: enforce cluster affinity ──────────────────────────────────────
     write /dev/cpuset/top-app/cpus 0-7
-    write /dev/cpuset/foreground/cpus 0-6
+    write /dev/cpuset/foreground/cpus 0-7
     write /dev/cpuset/background/cpus 0-3
     write /dev/cpuset/system-background/cpus 0-3
 
@@ -1920,9 +1931,9 @@ on boot
     setprop sys.use_fifo_ui 1
 
     # ── stune: EAS utilization boosts ────────────────────────────────────────
-    write /dev/stune/top-app/schedtune.boost 15
+    write /dev/stune/top-app/schedtune.boost 20
     write /dev/stune/top-app/schedtune.prefer_idle 1
-    write /dev/stune/foreground/schedtune.boost 5
+    write /dev/stune/foreground/schedtune.boost 8
     write /dev/stune/foreground/schedtune.prefer_idle 1
     write /dev/stune/background/schedtune.boost 0
     write /dev/stune/background/schedtune.prefer_idle 0
@@ -1964,9 +1975,9 @@ on boot
 
 
     # ── Input boost ───────────────────────────────────────────────────────────
-    # On first touch: littles→1.3GHz, bigs→1.1GHz, X1→1.2GHz for 120ms
-    write /sys/module/cpu_boost/parameters/input_boost_freq "0:1324800 4:1228800"
-    write /sys/module/cpu_boost/parameters/input_boost_ms 120
+    # On first touch: include X1 boost to improve app-open and gesture-to-render latency.
+    write /sys/module/cpu_boost/parameters/input_boost_freq "0:1324800 4:1228800 7:1516800"
+    write /sys/module/cpu_boost/parameters/input_boost_ms 140
     # Gaming input boost: more aggressive response to touch
     write /sys/module/cpu_boost/parameters/gaming_boost_freq "0:1632000 4:1632800 7:2419200"
     write /sys/module/cpu_boost/parameters/gaming_boost_ms 200
@@ -2122,6 +2133,9 @@ on property:vendor.gaming_mode=true
     write /sys/module/workqueue/parameters/power_efficient N
     # GPU preemption enabled: lower latency frame delivery
     write /sys/class/kgsl/kgsl-3d0/preemption_level 1
+    # During gaming + charging, cap charge current to reduce heat soak.
+    write /sys/class/power_supply/usb/current_max 3500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 3500000
 
 on property:vendor.gaming_mode=false
     # Restore balanced mode
@@ -2140,6 +2154,9 @@ on property:vendor.gaming_mode=false
     write /proc/sys/vm/swappiness 30
     write /sys/module/workqueue/parameters/power_efficient Y
     write /sys/class/kgsl/kgsl-3d0/preemption_level 0
+    # Restore full fast-charge current outside gaming mode.
+    write /sys/class/power_supply/usb/current_max 6500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 6500000
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Thermal throttling zones — progressive response to heat
@@ -2148,6 +2165,9 @@ on property:vendor.thermal.zone=normal
     # Normal temps (< 55°C): full performance
     write /sys/devices/system/cpu/cpu7/cpufreq/scaling_max_freq 2841600
     write /sys/class/kgsl/kgsl-3d0/max_gpuclk 750000000
+    # Full current only in normal thermal zone.
+    write /sys/class/power_supply/usb/current_max 6500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 6500000
 
 on property:vendor.thermal.zone=warm
     # Warning zone (55-65°C): slightly throttled for heat shedding
@@ -2155,6 +2175,9 @@ on property:vendor.thermal.zone=warm
     write /sys/class/kgsl/kgsl-3d0/max_gpuclk 600000000
     # Reduce aggressiveness of CPU boost
     write /sys/module/cpu_boost/parameters/input_boost_ms 80
+    # Mild charging taper to control skin temperature rise.
+    write /sys/class/power_supply/usb/current_max 4500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 4500000
 
 on property:vendor.thermal.zone=hot
     # Hot zone (65-75°C): sustained throttle for safety
@@ -2163,6 +2186,9 @@ on property:vendor.thermal.zone=hot
     write /sys/class/kgsl/kgsl-3d0/max_gpuclk 450000000
     # Disable boost entirely
     write /sys/module/cpu_boost/parameters/input_boost_ms 0
+    # Strong charging taper for thermal recovery.
+    write /sys/class/power_supply/usb/current_max 3000000
+    write /sys/class/power_supply/battery/constant_charge_current_max 3000000
 
 on property:vendor.thermal.zone=critical
     # Critical (> 75°C): severe throttle to prevent shutdown
@@ -2171,6 +2197,9 @@ on property:vendor.thermal.zone=critical
     write /sys/class/kgsl/kgsl-3d0/max_gpuclk 300000000
     # Restrict to efficiency cores only
     write /proc/sys/kernel/sched_boost 0
+    # Emergency charging floor to protect battery and PMIC.
+    write /sys/class/power_supply/usb/current_max 2000000
+    write /sys/class/power_supply/battery/constant_charge_current_max 2000000
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sustained Gaming Mode — optimized for 1+ hour gameplay with thermal safety
@@ -2199,6 +2228,55 @@ on property:vendor.sustained_gaming=false
     write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
     write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 480000
     write /sys/module/cpu_boost/parameters/input_boost_ms 120
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual performance profile toggle
+# persist.vendor.op9.profile=balanced|benchmark
+# ─────────────────────────────────────────────────────────────────────────────
+on property:persist.vendor.op9.profile=benchmark
+    # Benchmark mode: maximize sustained compute and memory bandwidth.
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 2841600
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 2457600
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 2457600
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 2457600
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 650000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 650000000
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 3024000
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 576000
+    write /proc/sys/kernel/sched_boost 1
+
+on property:persist.vendor.op9.profile=balanced
+    # Balanced mode: responsive daily behavior with lower idle thermals.
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1228800
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1132800
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1132800
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 180000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 180000000
+    write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
+    write /sys/devices/system/cpu/bus_dcvs/CCI/boost_freq 480000
+    write /proc/sys/kernel/sched_boost 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual charging mode toggle
+# persist.vendor.op9.charge_mode=adaptive|cool|full65w
+# ─────────────────────────────────────────────────────────────────────────────
+on property:persist.vendor.op9.charge_mode=cool
+    # Cooler charging profile for gaming or hot ambient conditions.
+    write /sys/class/power_supply/usb/current_max 3000000
+    write /sys/class/power_supply/battery/constant_charge_current_max 3000000
+
+on property:persist.vendor.op9.charge_mode=full65w
+    # Full fast-charge target; thermal zone logic can still taper if needed.
+    write /sys/class/power_supply/usb/current_max 6500000
+    write /sys/class/power_supply/usb/voltage_max 11000000
+    write /sys/class/power_supply/battery/input_current_limit 6500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 6500000
+
+on property:persist.vendor.op9.charge_mode=adaptive
+    # Adaptive is default; set full target and let thermal zones manage taper.
+    write /sys/class/power_supply/usb/current_max 6500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 6500000
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2281,6 +2359,11 @@ on property:sys.boot_completed=1
     # Trim filesystem — frees unused blocks after boot package extraction
     # start fstrim already issued above; this triggers the actual UFS TRIM pass
     write /sys/block/sda/queue/fua 1
+    # Set full fast-charge targets after late-init services settle.
+    write /sys/class/power_supply/usb/current_max 6500000
+    write /sys/class/power_supply/usb/voltage_max 11000000
+    write /sys/class/power_supply/battery/input_current_limit 6500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 6500000
 EOF
 
         # ── Per-device rc overrides after base rc is written
@@ -2298,7 +2381,22 @@ EOF
             sed -i 's|kgsl-3d0/max_gpuclk 750000000|kgsl-3d0/max_gpuclk 650000000|' \
                 "$VENDOR_PATH/etc/init/op9_sched.rc"
             blue "OP9R/9RT 90Hz power profile applied"
-        elif [[ "${is_op9pro}" == true && "${is_12gb_variant}" == true ]]; then
+        elif [[ "${is_op9pro}" == true ]]; then
+            # OP9 Pro: lower idle heat for daily use, keep aggressive boost for load spikes.
+            sed -i 's|cpu7/cpufreq/scaling_min_freq 1228800|cpu7/cpufreq/scaling_min_freq 1036800|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|cpu4/cpufreq/scaling_min_freq 1132800|cpu4/cpufreq/scaling_min_freq 960000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|input_boost_ms 120|input_boost_ms 100|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            # Keep gaming responsive but reduce steady-state heat in long sessions.
+            sed -i 's|kgsl-3d0/devfreq/min_freq 500000000|kgsl-3d0/devfreq/min_freq 430000000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|kgsl-3d0/min_gpuclk 500000000|kgsl-3d0/min_gpuclk 430000000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            blue "OP9 Pro balanced performance profile applied"
+
+            if [[ "${is_12gb_variant}" == true ]]; then
             # OP9 Pro 12GB: aggressive zram allocation + LLC retention
             # 6GB zram for high-ram variant — allows more aggressive background app processing
             sed -i 's|disksize 4294967296|disksize 6442450944|' \
@@ -2310,6 +2408,7 @@ EOF
             sed -i '/cpu7.*down_rate_limit_us 2000/a\    # 12GB variant: hold X1 warm longer for sustained workloads\n    write /proc/sys/kernel/sched_upmigrate 70' \
                 "$VENDOR_PATH/etc/init/op9_sched.rc" || true
             blue "OP9 Pro 12GB high-performance profile applied"
+            fi
         fi
         fi
 
@@ -2431,7 +2530,39 @@ EOF
         #   Cool : vapour chamber + graphite stack (most aggressive in OP9 line)
         # ════════════════════════════════════════════════════════════════════
         if [[ "${is_op9pro}" == true ]]; then
-            blue "Applying OP9 Pro exclusive thermal/battery/performance profile..."
+            if [[ "${baseIsColorOSCN}" == true ]]; then
+                blue "OP9 Pro + ColorOS CN detected — applying balanced CN profile (cooler thermals + better battery, while keeping strong daily/gaming performance)"
+
+                # Balanced OP9 Pro CN profile: keep smoothness, reduce sustained heat.
+                # This avoids aggressive benchmark-oriented overrides while improving
+                # battery behavior on daily usage and long gaming sessions.
+                set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_idle_timer_ms=400"
+                set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_touch_timer_ms=180"
+                set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.set_display_power_timer_ms=900"
+                set_prop "$VENDOR_PATH/default.prop"  "ro.surface_flinger.use_content_detection_for_refresh_rate=true"
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.display.idle_fps=1"
+
+                # Keep top-app responsiveness without the extreme always-hot behavior.
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.sched_boost_on_top_app=1"
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.phr.target_fps=120"
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.phr.render_ahead=1"
+
+                # Thermal/battery efficiency knobs (non-destructive, no charge-current hacks).
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.bcl.enabled=true"
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.bcl.ibat.mitigate=4000"
+                set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.skin.temp.sample=2"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.enhanced.power.save=1"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.wifi.scan.allow_low_latency_scan=0"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.modem_sleep=1"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.add_power_save=1"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.enable.rt_task=false"
+                set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.sensors.support_wakelock=false"
+                set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.psi_partial_stall_ms=70"
+                set_prop "$SYSTEM_PATH/build.prop"    "ro.lmk.thrashing_limit=120"
+
+                green "OP9 Pro CN balanced profile applied"
+            else
+                blue "Applying OP9 Pro exclusive thermal/battery/performance profile..."
 
             # ── OP9 Pro: deeper LTPO SF timing refinement
             # idle_timer_ms=700: give LTPO more time before dropping Hz — reduces the
@@ -3654,6 +3785,33 @@ OP9PROEOF
                 green "OP9 Pro 12GB performance overlay applied"
             fi
 
+            # ── OP9 Pro sustained balance finalizer
+            # Keep strong burst/benchmark behavior but reduce unnecessary idle heat
+            # and long-session drain for daily usage + gaming.
+            if [[ -f "$VENDOR_PATH/etc/init/op9pro_perf.rc" ]]; then
+                if [[ "${is_12gb_variant}" == true ]]; then
+                    # 12GB variant keeps a stronger floor while avoiding always-hot X1.
+                    sed -i 's|cpu7/cpufreq/scaling_min_freq 1728000|cpu7/cpufreq/scaling_min_freq 1516800|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu7/cpufreq/scaling_min_freq 1516800|cpu7/cpufreq/scaling_min_freq 1516800|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu4/cpufreq/scaling_min_freq 1478400|cpu4/cpufreq/scaling_min_freq 1363200|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu5/cpufreq/scaling_min_freq 1478400|cpu5/cpufreq/scaling_min_freq 1363200|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu6/cpufreq/scaling_min_freq 1478400|cpu6/cpufreq/scaling_min_freq 1363200|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|kgsl-3d0/min_gpuclk 300000000|kgsl-3d0/min_gpuclk 257000000|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|kgsl-3d0/devfreq/min_freq 300000000|kgsl-3d0/devfreq/min_freq 257000000|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                else
+                    # 8GB / non-12GB variant: lower sustained floor for cooler thermals.
+                    sed -i 's|cpu7/cpufreq/scaling_min_freq 1516800|cpu7/cpufreq/scaling_min_freq 1401600|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu4/cpufreq/scaling_min_freq 1363200|cpu4/cpufreq/scaling_min_freq 1286400|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu5/cpufreq/scaling_min_freq 1363200|cpu5/cpufreq/scaling_min_freq 1286400|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu6/cpufreq/scaling_min_freq 1363200|cpu6/cpufreq/scaling_min_freq 1286400|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|kgsl-3d0/min_gpuclk 257000000|kgsl-3d0/min_gpuclk 220000000|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|kgsl-3d0/devfreq/min_freq 257000000|kgsl-3d0/devfreq/min_freq 220000000|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|cpu.uclamp.min 55|cpu.uclamp.min 50|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                    sed -i 's|/stune/top-app/schedtune.boost 20|/stune/top-app/schedtune.boost 15|g' "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+                fi
+                green "OP9 Pro sustained balance finalizer applied"
+            fi
+
             # ── OP9 Pro: Additional performance props injected into bruce/build.prop
             # These are not already set by the Smoothness block above.
 
@@ -3661,8 +3819,8 @@ OP9PROEOF
             # framebuffer for portrait apps on a landscape-native display pipeline.
             # On QHD+ panels this blit costs 0.3-0.5ms/frame — saved every frame.
             set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.enable_frame_rate_override=false"
-            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_idle_timer_ms=700"
-            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_touch_timer_ms=300"
+            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_idle_timer_ms=550"
+            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_touch_timer_ms=220"
 
             # JIT threshold: lower value = hot methods promoted to AOT faster.
             # On X1 the JIT interpreter overhead vs AOT is ~8% IPC — reducing
@@ -3683,7 +3841,7 @@ OP9PROEOF
 
             # Fling velocity: higher ceiling = faster scroll momentum on 120Hz LTPO.
             set_prop "$SYSTEM_PATH/build.prop" "ro.min.fling_velocity=160"
-            set_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=24000"
+            set_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=16000"
 
             # GC: CMS has lower stop-the-world pause than default ConcurrentCopying
             # for a 512m heap — each GC pause costs the full duration off benchmarks.
@@ -3694,7 +3852,7 @@ OP9PROEOF
             # On OP9 Pro LTPO this eliminates the 8-12ms freq ramp at frame start.
             set_prop "$VENDOR_PATH/default.prop" "vendor.perf.phr.target_fps=120"
             set_prop "$VENDOR_PATH/default.prop" "ro.vendor.perf.phr.enable=1"
-            set_prop "$VENDOR_PATH/default.prop" "vendor.perf.phr.render_ahead=3"
+            set_prop "$VENDOR_PATH/default.prop" "vendor.perf.phr.render_ahead=2"
             set_prop "$VENDOR_PATH/default.prop" "ro.vendor.perf.pfar.enable=1"
 
             # Sched boost on top-app: EAS boost when top-app has CPU demand.
@@ -3724,8 +3882,15 @@ OP9PROEOF
             set_prop "$VENDOR_PATH/default.prop" "persist.thermal.config=perf_profile"
 
             # Background interference: park background threads during perf hint window.
-            set_prop "$SYSTEM_PATH/build.prop" "ro.config.max_starting_bg=4"
+            set_prop "$SYSTEM_PATH/build.prop" "ro.config.max_starting_bg=6"
             set_prop "$VENDOR_PATH/default.prop" "vendor.perf.bg_app_suspend.enable=true"
+
+            # Balanced caps: keep multitasking and sustained gaming stable.
+            set_prop "$VENDOR_PATH/default.prop" "ro.vendor.qti.sys.fw.bg_apps_limit=56"
+            set_prop "$SYSTEM_PATH/build.prop" "ro.sys.fw.bg_apps_limit=56"
+            set_prop "$VENDOR_PATH/default.prop" "vendor.perf.gaming.frame_pacing_enable=1"
+            set_prop "$VENDOR_PATH/default.prop" "vendor.perf.gaming.touch_boost_enabled=1"
+            set_prop "$VENDOR_PATH/default.prop" "vendor.perf.gaming.min_freq_lock_duration=700"
 
             # mpctlv3: QTI perf daemon protocol v3 — enables cluster-level freq lock.
             set_prop "$VENDOR_PATH/default.prop" "vendor.perf.mpctlv3.enable=true"
@@ -3766,6 +3931,7 @@ OP9PROEOF
             green "OP9 Pro performance props injected"
             green "OP9 Pro exclusive profile applied — Rapchick Engine"
         fi
+        fi
         # ════════════════════════════════════════════════════════════════════
         green "Smoothness Addons applied (SM8350)"
     fi  # end: SM8350 block
@@ -3777,15 +3943,33 @@ OP9PROEOF
 
 # CN variant detection — check system props for domestic market indicators
 is_coloros_china=false
-case "${base_product_device}" in
-    OP4E5D|OP4E3F|LE2100|LE2101|LE2110|LE2111|LE2112|LE2113|LE2120|LE2121|LE2123|LE2125)
-        # OneP Plus CN model codes detected
-        if [[ "${base_area}" == "domestic" ]]; then
-            is_coloros_china=true
-            blue "ColorOS China detected — applying CN-specific optimizations (${base_product_device})"
-        fi
-        ;;
-esac
+# Prefer the already computed classifier, then fall back to base props/region markers.
+if [[ "${baseIsColorOSCN}" == true ]] || \
+   [[ "${base_area}" == "domestic" ]] || \
+   [[ "${base_regionmark}" == "CN" ]] || [[ "${base_regionmark}" == "cn" ]]; then
+    is_coloros_china=true
+    blue "ColorOS China detected — applying CN-specific optimizations (${base_product_device})"
+fi
+
+# Baseline CN optimization profile (applies to all COS CN bases)
+if [[ "${is_coloros_china}" == true ]]; then
+    SYSTEM_PATH="build/portrom/images/system/system"
+    VENDOR_PATH="build/portrom/images/vendor"
+
+    if [[ -f "$SYSTEM_PATH/build.prop" && -f "$VENDOR_PATH/default.prop" ]]; then
+        set_prop "$SYSTEM_PATH/build.prop"    "ro.oplus.image.system_ext.area=domestic"
+        set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.locale=zh_CN"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.oplus.market=CN"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.oplus.locale.region=CN"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.qos.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.data.iwlan.enable=1"
+        set_prop "$VENDOR_PATH/default.prop"  "ro.config.hw_fast_dormancy=1"
+        set_prop "$VENDOR_PATH/default.prop"  "persist.radio.add_power_save=1"
+        green "ColorOS China baseline optimization profile applied"
+    else
+        yellow "ColorOS China baseline optimizations skipped: required prop files not found"
+    fi
+fi
 
 # Apply CN-specific optimizations if ColorOS China is detected
 if [[ "${is_coloros_china}" == true ]] && [[ "${base_device_family}" == "OPSM8350" ]]; then
@@ -4358,7 +4542,15 @@ blue "╔═══════════════════════�
 blue "║  AUTOMATIC GAPPS PRE-INSTALLATION — ColorOS CN Only           ║"
 blue "╚════════════════════════════════════════════════════════════════╝"
 
-if is_coloros_cn "build/portrom/images/my_manifest/build.prop"; then
+# Robust CN detection for GApps preinstall:
+# 1) Prefer base ROM classification (baseIsColorOSCN)
+# 2) Fall back to build.prop heuristics (is_coloros_cn)
+force_cn_gapps=false
+if [[ "${baseIsColorOSCN}" == true ]] || [[ "${is_coloros_china}" == true ]] || is_coloros_cn "build/portrom/images/my_manifest/build.prop"; then
+    force_cn_gapps=true
+fi
+
+if [[ "${force_cn_gapps}" == true ]]; then
     # ─ ColorOS CN: auto-inject GApps (doesn't have them in base) ────────────
     blue "🚀 ColorOS CN DETECTED — Auto-downloading & installing Google Apps..."
     if auto_download_gapps_for_coscn "build/portrom/images/my_manifest/build.prop" "$port_android_version"; then
@@ -4377,7 +4569,7 @@ fi
 # MANDATORY for ColorOS CN: GApps Framework & Permissions Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 # Ensure Google Play Framework, GMS permissions are properly configured for CN ROMs
-if is_coloros_cn "build/portrom/images/my_manifest/build.prop"; then
+if [[ "${force_cn_gapps}" == true ]]; then
     blue "Configuring GApps framework & system integration (ColorOS CN)..."
 
     # Install/verify Google Play Framework permissions
@@ -4421,13 +4613,42 @@ GMSEOF
     fi
     
     green "✅ CHECKPOINT: GApps framework fully configured (ColorOS CN)"
+
+    # Validate that critical GApps packages are actually present in the image.
+    # If not, retry one more auto-download/install cycle and fail fast if still missing.
+    if ! verify_gapps_presence; then
+        yellow "GApps verification failed on first pass — retrying auto-install for ColorOS CN"
+        auto_download_gapps_for_coscn "build/portrom/images/my_manifest/build.prop" "$port_android_version" "tmp/MindTheGapps_retry.zip" || true
+
+        if ! verify_gapps_presence; then
+            error "❌ ColorOS CN requires preinstalled GApps, but GmsCore/Phonesky are missing after retry"
+            exit 1
+        fi
+    fi
+
+    green "✅ CHECKPOINT: ColorOS CN GApps preinstallation verified (GmsCore + Play Store present)"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Delete Unnecessary Apps (AFTER GApps pre-installation is confirmed)
 # ─────────────────────────────────────────────────────────────────────────────
 yellow "Deleting unnecessary apps" "Debloating..."
-debloat_apps=("HeartRateDetect" "Browser")
+debloat_apps=(
+    "HeartRateDetect" 
+    "Browser"
+    # User-requested extra debloat
+    "OHealth"           # OPPO Health / OHealth variants
+    "OPPOHealth"       
+    "HealthApp"        
+    "HeyTapCloud"      # HeyTap Cloud / cloud backup
+    "CloudService"     
+    "QuickGame"        # Quick Games launcher / hub
+    "QuickGames"
+    "GameCenterQuick"  
+    "IRRemote"         # IR remote / remote control
+    "RemoteControl"    
+    "SmartRemote"
+)
 kept_apps=("OppoNote2" "OppoWeather2")
 
 # Helper: remove a list of apps by directory name from portrom images
@@ -4443,7 +4664,15 @@ do_debloat() {
 }
 
 # OOS/KB2000+ specific debloat list (shared between several model branches)
-oos_debloat_apps=("Facebook" "YTMusic" "GoogleHome" "GoogleOne" "Videos_del" "Drive_del" "ConsumerIRApp" "YouTube" "Gmail2" "Maps" "Wellbeing" "OPForum" "INOnePlusStore" "Meet")
+oos_debloat_apps=(
+    "Facebook" "YTMusic" "GoogleHome" "GoogleOne" "Videos_del" "Drive_del" "ConsumerIRApp" 
+    "YouTube" "Gmail2" "Maps" "Wellbeing" "OPForum" "INOnePlusStore" "Meet"
+    # Extra debloat on OOS-style bases as well
+    "OHealth" "OPPOHealth" "HealthApp" 
+    "HeyTapCloud" "CloudService"
+    "QuickGame" "QuickGames" "GameCenterQuick"
+    "IRRemote" "RemoteControl" "SmartRemote"
+)
 
 if [[ "${super_extended}" == true ]] && [[ $pack_method == "stock" ]] && [[ -f build/baserom/images/reserve.img ]]; then
     rm -rf build/baserom/images/reserve.img
@@ -4542,6 +4771,21 @@ if [[ "${is_coloros_china}" != true ]] && \
         
         # Chinese regional services
         "OPlus_CN_Service" "OnePlus_CN_Service" "OPPO_Market_CN"
+
+        # User-requested CN package removals (pm uninstall --user 0 equivalents)
+        # Wallet
+        "com.heytap.wallet" "com.oppo.wallet" "HeyTapWallet" "OppoWallet"
+        # Quick game / hot app hubs
+        "com.heytap.quickgame" "com.oppo.quickgame" "com.oppo.hotapps" "com.oppo.hotgames"
+        "HeyTapQuickGame" "OppoQuickGame" "OppoHotApps" "OppoHotGames" "HotApps" "HotGames"
+        # HeyTap media + content apps
+        "com.heytap.browser" "com.heytap.video" "com.heytap.music" "com.heytap.reader" "com.heytap.news"
+        "HeyTapBrowser" "HeyTapVideo" "HeyTapMusic" "HeyTapReader" "HeyTapNews"
+        # Breeno / quick app / game center
+        "com.heytap.breeno" "com.heytap.quickapp" "com.heytap.gamecenter"
+        "HeyTapBreeno" "HeyTapQuickApp" "HeyTapGameCenter" "Breeno"
+        # Community / store
+        "com.oppo.community" "com.oppo.store" "OppoCommunity" "OppoStore" "OPPOStore"
     )
     
     # Remove CN bloatware apps
@@ -4552,7 +4796,7 @@ if [[ "${is_coloros_china}" != true ]] && \
             [[ ! -d "$cn_app_dir" ]] && continue
             yellow "Removing CN bloatware: $(basename "$cn_app_dir")"
             rm -rf "$cn_app_dir"
-            ((cn_bloat_removed++))
+            ((++cn_bloat_removed))
         done < <(find build/portrom/images/ -type d \( \
             -path "*/priv-app/*" -o \
             -path "*/system/app/*" -o \
@@ -4658,13 +4902,10 @@ if [[ $(grep "ro.oplus.audio.effect.type" build/baserom/images/my_product/build.
        unzip -o devices/common/dolby_fix.zip -d build/portrom/images/
    fi
 fi
-if [[ -f build/portrom/images/vendor/lib64/vendor.oplus.hardware.radio-V2-ndk_platform.so ]] && \
-   [[ ${base_device_family} == "OPSM8350" ]] && \
-   [[ -f "devices/common/ril_fix_A16_SM8350.zip" ]]; then
+if [[ ! -f build/portrom/images/vendor/lib64/vendor.oplus.hardware.radio-V2-ndk_platform.so ]] && [[ ${base_device_family} == "OPSM8350" ]];then
     blue "Fixing RIL..."
     unzip -o devices/common/ril_fix_A16_SM8350.zip -d ${work_dir}/build/portrom/images/vendor/
-    rm -f build/portrom/images/vendor/lib/vendor.oplus.hardware.radio-V1-ndk_platform.so \
-          build/portrom/images/vendor/lib64/vendor.oplus.hardware.radio-V1-ndk_platform.so
+    rm -rf build/portrom/images/vendor/*/vendor.oplus.hardware.radio-V1-ndk_platform.so
 fi
 cp -rf build/baserom/images/my_product/etc/audio*.xml build/portrom/images/my_product/etc/ || true
 cp -rf build/baserom/images/my_product/etc/default_volume_tables.xml build/portrom/images/my_product/etc/ || true
@@ -5147,7 +5388,7 @@ fi
 # Only runs when the port is ColorOS China (not OOS, not Global).
 # Place bootanimation.zip in the project root next to port.sh.
 # The zip should contain the desc.txt and numbered frame folders at its root.
-if [[ "${portIsColorOS}" == true ]]; then
+if [[ "${baseIsColorOSCN}" == true ]]; then
     if [[ -f "bootanimation.zip" ]]; then
         blue "ColorOS CN port: installing custom boot animation from bootanimation.zip"
         rm -rf build/portrom/images/my_product/media/bootanimation
@@ -5164,7 +5405,7 @@ if [[ "${portIsColorOS}" == true ]]; then
         fi
         green "Custom boot animation installed"
     else
-        yellow "bootanimation.zip not found in project root — keeping default"
+        yellow "ColorOS CN port: bootanimation.zip not found in project root — keeping default"
     fi
 fi
  
@@ -5174,7 +5415,19 @@ if [[ -f devices/common/wallpaper.zip ]] && [[ "$portIsColorOSGlobal" == "false"
     unzip -o devices/common/wallpaper.zip -d build/portrom/images
  fi   
 
-# ── 3D wallpaper: save portrom res overlay before baserom wipe — Rapchick Engine
+# ── 3D wallpaper: stash portrom overlays BEFORE res wipe — Rapchick Engine
+# IMPORTANT: This MUST run before "rm -rf my_product/res/*" below.
+# functions.sh::stash_portrom_wallpaper_overlays() saves:
+#   • Wallpaper overlay APKs from res/ (WallpaperPicker, WallpaperStyle, etc.)
+#   • 3D media asset dirs (wallpaper3d/, livewallpaper/, etc.)
+#   • WallpaperPicker / WallpaperStyle app dirs from my_product/app/
+# Restoration + feature-flag injection happens in restore_portrom_wallpaper_overlays()
+# after the CN baserom res is copied in.
+if [[ "${baseIsColorOSCN}" == true ]]; then
+    stash_portrom_wallpaper_overlays || true
+fi
+
+# ── 3D wallpaper: save portrom res overlay before baserom wipe — Rapchick Engine (legacy block, now superseded by stash_portrom_wallpaper_overlays above)
 # my_product/res/ is about to be replaced wholesale from the CN baserom.
 # The portrom (Global EX) carries wallpaper overlay APKs here that enable 3D/live
 # wallpaper — the CN baserom doesn't have them, so without saving them first they
@@ -5182,64 +5435,20 @@ if [[ -f devices/common/wallpaper.zip ]] && [[ "$portIsColorOSGlobal" == "false"
 #
 # Guard: use baseIsColorOSCN (the *base* is CN), NOT regionmark which reflects the
 # port ROM's own region and will be GL/IN/etc when the port source is Global EX.
-if [[ "${baseIsColorOSCN}" == true ]]; then
-    rm -rf tmp/portrom_wallpaper_res_backup
-    mkdir -p tmp/portrom_wallpaper_res_backup
-    # Save every overlay APK whose name contains wallpaper (case-insensitive)
-    while IFS= read -r f; do
-        cp -rf "${f}" tmp/portrom_wallpaper_res_backup/
-    done < <(find build/portrom/images/my_product/res/ -maxdepth 1 \
-        \( -iname "*wallpaper*" -o -iname "*Wallpapers*" \) 2>/dev/null)
-    # Also save OplusWallpapers media asset dirs (3D mesh/video assets)
-    rm -rf tmp/portrom_wallpaper_media_backup
-    mkdir -p tmp/portrom_wallpaper_media_backup
-    for media_dir in \
-        "build/portrom/images/my_product/media/wallpaper3d" \
-        "build/portrom/images/my_product/media/wallpaper_3d" \
-        "build/portrom/images/my_product/media/live_wallpaper_res" \
-        "build/portrom/images/my_product/media/livewallpaper"
-    do
-        if [[ -d "${media_dir}" ]]; then
-            cp -rf "${media_dir}" tmp/portrom_wallpaper_media_backup/
-        fi
-    done
-    green "3D wallpaper: portrom overlays stashed before res wipe"
-fi
+# (stash already performed above via stash_portrom_wallpaper_overlays)
 
 rm -rf build/portrom/images/my_product/res/*
 cp -rf build/baserom/images/my_product/res/* build/portrom/images/my_product/res/ || true
 
 # ── 3D wallpaper: restore portrom wallpaper overlays over CN res ──────────────
-# Now put the saved Global EX wallpaper overlay APKs back. They take precedence
-# over any CN wallpaper overlays because the Global ones declare 3D support.
+# Calls restore_portrom_wallpaper_overlays() from functions.sh which:
+#   • Puts back WallpaperPicker/WallpaperStyle overlay APKs
+#   • Restores 3D media asset dirs (wallpaper3d/, livewallpaper/, etc.)
+#   • Restores WallpaperPicker/WallpaperStyle app packages
+#   • Injects all 3D+live wallpaper feature flags (including WallpaperStyle ones)
+#   • Writes 3D wallpaper system props to bruce/build.prop
 if [[ "${baseIsColorOSCN}" == true ]]; then
-    # Restore wallpaper overlay APKs
-    if [[ -d tmp/portrom_wallpaper_res_backup ]] && \
-       [[ -n "$(ls -A tmp/portrom_wallpaper_res_backup 2>/dev/null)" ]]; then
-        cp -rf tmp/portrom_wallpaper_res_backup/* \
-            build/portrom/images/my_product/res/
-        _wp_count=$(ls tmp/portrom_wallpaper_res_backup | wc -l)
-        green "3D wallpaper: restored ${_wp_count} overlay APK(s) from portrom"
-    fi
-    # Restore 3D wallpaper media asset dirs
-    if [[ -d tmp/portrom_wallpaper_media_backup ]] && \
-       [[ -n "$(ls -A tmp/portrom_wallpaper_media_backup 2>/dev/null)" ]]; then
-        cp -rf tmp/portrom_wallpaper_media_backup/* \
-            build/portrom/images/my_product/media/
-        green "3D wallpaper: restored media asset dirs"
-    fi
-    # Add 3D wallpaper feature flags — CN region strips these from oplus-feature XMLs
-    # Single-quoted strings prevent the shell from treating the inner " as terminators
-    add_feature_v2 app_feature \
-        'com.oplus.wallpapers.support_3d_wallpaper^^args="boolean:true"' \
-        'com.oplus.wallpapers.download_3d_wallpaper^^args="boolean:true"' \
-        'com.oplus.wallpapers.3d_wallpaper_support^^args="boolean:true"' \
-        'com.oplus.wallpapers.support_live_wallpaper^^args="boolean:true"' \
-        'com.oplus.wallpapers.live_wallpaper_download^^args="boolean:true"'
-    add_feature_v2 oplus_feature \
-        "oplus.software.wallpaper.3d_wallpaper_support" \
-        "oplus.software.wallpaper.live_wallpaper_support"
-    green "3D wallpaper: feature flags enabled for CN base ColorOS port"
+    restore_portrom_wallpaper_overlays || true
 fi
 
 #rm -rf build/portrom/images/my_product/vendor/*

@@ -71,6 +71,34 @@
 
 ---
 
+## 🆕 Latest Improvements (March 2026)
+
+### 🇨🇳 ColorOS CN Defaults
+- **bootanimation.zip auto-apply (CN-only):** If `bootanimation.zip` exists in project root, it is automatically installed for ColorOS CN ports.
+- **Automatic GApps pre-install for CN:** CN builds auto-download MindTheGapps and now inject into the correct dynamic `system` root so Play Store is available on first boot.
+- **3D wallpaper integration:** CN ports now run full 3D wallpaper integration (APKs, assets, feature flags, and props).
+
+### 🌡️ OP9 Pro CN Balanced Performance Mode
+- **Cooler than old aggressive profile:** Replaces the former benchmark-heavy CN behavior with a balanced profile focused on sustained performance.
+- **Daily + gaming smoothness preserved:** Keeps strong frame pacing and top-app responsiveness while reducing sustained heat.
+- **Battery-aware tuning:** Uses power-saving network/sensor behavior and less aggressive thermal-current mitigation without hard battery/charging hacks.
+
+### 🧹 Debloat Additions
+- Added removal patterns for:
+  - **OPPO Health** (`OHealth`, `OPPOHealth`, `HealthApp`)
+  - **HeyTap Cloud** (`HeyTapCloud`, `CloudService`)
+  - **IR Remote** (`IRRemote`, `RemoteControl`, `SmartRemote`)
+  - **Quick Games** (`QuickGame`, `QuickGames`, `GameCenterQuick`)
+
+### ✅ Result
+- CN target builds are now closer to “flash and use”:
+  - GApps preinstalled
+  - 3D wallpaper working
+  - CN bootanimation applied automatically
+  - Lower heat with better sustained daily/gaming behavior
+
+---
+
 ## 📱 Supported Devices
 
 ### ✅ Snapdragon 888 (SM8350)
@@ -677,50 +705,6 @@ Total estimated improvement:
 
 ---
 
-## 🛠️ Customization Examples
-
-### ✅ Example 1: Pure Gaming Optimization
-
-```bash
-# Use this port if you primarily game
-# Base: OnePlus 9 Pro OxygenOS (minimal modding)
-# Port: OnePlus 9 Pro ColorOS CN (aggressive tuning)
-
-sudo ./port.sh \
-  "/path/to/OOS14_9Pro_global.zip" \
-  "/path/to/ColorOS14_9Pro_CN.zip"
-```
-
-### ✅ Example 2: Battery Life Focus
-
-```bash
-# Use this build for maximum battery
-# Base: OnePlus 9RT (lower power variant)
-# Port: Keep base ROM props but apply battery optimizations
-
-# Manually edit bin/port_config:
-# battery_saver_threshold=50
-# thermal_profile=conservative
-# Then run with minimal port
-
-sudo ./port.sh \
-  "/path/to/OOS_9RT.zip" \
-  "/path/to/OOS_9RT.zip"   # Same ROM for stability
-```
-
-### ✅ Example 3: Daily Driver Balanced
-
-```bash
-# Best of everything for general use
-# Base: OnePlus 9 Pro OxygenOS
-# Port: OnePlus 15/FIND X7 (newer system framework)
-
-sudo ./port.sh \
-  "/path/to/OOS14_9Pro.zip" \
-  "/path/to/OOS16_OP15.zip"
-```
-
----
 
 ## 📞 Support & Community
 
@@ -797,6 +781,5 @@ git push origin feature/my-optimization
 
 **[⬆ Back to Top](#-project-revork)**
 
-**Made with ❤️ for Qualcomm Device Enthusiasts**
 
 </div>
