@@ -5260,7 +5260,7 @@ if [[ "$pack_method" == "stock" ]];then
 	        exit 1
 	    fi
 	    ota_zip="${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip"
-        ./bin/ota_from_target_files --partial= --force_minor_verison 9 ${work_dir}/out/target/product/${base_product_device}/ ${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip
+        ./bin/ota_from_target_files --partial= --force_minor_version 9 ${work_dir}/out/target/product/${base_product_device}/ ${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip
 	    ota_rc=$?
 	    popd >/dev/null
 	    if [[ ${ota_rc} -ne 0 || ! -f "${ota_zip}" ]]; then
