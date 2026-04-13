@@ -21,10 +21,11 @@ if [ "$(uname -m)" == "aarch64" ];then
     echo "Device arch: aarch64"
     apt update -y
     apt upgrade -y
-    apt install -y python3 busybox zip unzip p7zip openjdk-21-jdk zipalign zstd xmlstarlet
+    apt install -y python busybox zip unzip p7zip openjdk-21 zipalign zstd xmlstarlet
 fi
 
 if [ "$(uname)" == "Darwin" ] && [ "$(uname -m)" == "x86_64" ];then
-    echo "Device arch: MacOS X86_X64"
-    brew install busybox aria2 openjdk zstd coreutils gdu gnu-sed gnu-getopt grep xmlstarlet
+    echo "Devcie arch: MacOS X86_X64"
+    pip3 install buysbox
+    brew install aria2 openjdk zstd coreutils gdu gnu-sed gnu-getopt grep xmlstarlet
 fi

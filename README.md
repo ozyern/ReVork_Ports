@@ -1,136 +1,64 @@
-# coloros_port
+<div align="center">
 
-ColorOS/OxygenOS/realme UI ROM porting toolkit for Snapdragon 865/888 class devices.
+# ColorOS 移植项目
 
-This project automates:
-- ROM extraction (payload, img, dat.br)
-- partition merge/override logic (including mixed-port mode)
-- device-specific patching and prop tuning
-- image repacking
-- packaging to OTA-style zip (`pack_method=stock`) or flashable fastboot zip
+简体中文&nbsp;&nbsp;|&nbsp;&nbsp;[English](/README_en-US.md) 
 
-## Supported devices in this repo
-Current device folders under `devices/`:
-- `OnePlus8`
-- `OnePlus8Pro`
-- `OnePlus8T`
-- `OnePlus9`
-- `OnePlus9Pro`
-- `OnePlus9R`
-- `OP4E5D`
+</div>
 
-Common patches are stored in `devices/common/`.
+## 简介
+- ColorOS 一键自动移植打包
 
-## Host requirements
-- Linux (x86_64/aarch64), WSL2, or macOS x86_64
-- `sudo`/root for setup and running `port.sh`
-- large free disk space (recommend 80GB+)
-- enough RAM for APK/smali and image repack workloads (recommend 16GB+)
+## 支持机型
 
-Install dependencies:
+- 一加8系列（一加8、一加8Pro、一加8T、一加9R）
+- 一加9系列（OnePlus 9、OnePlus9 RT、OnePlus9 Pro）
+- Oppo Find X3、Oppo Find X3 Pro
 
-```bash
-sudo ./setup.sh
+## 测试机型及版本
+- BASE: OnePlus 8T (ColorOS_14.0.0.600), OnePlus 8 (ColorOS_IN2010_13.1.190), OnePlus 8 Pro (ColorOS_IN2020_13.1.0.190)
+- PORT: OnePlus 12 (ColorOS_14.0.0.800), OnePlus ACE3V(ColorOS_14.0.1.621)
+
+
+## 正常工作
+- 人脸
+- 挖孔
+- 指纹
+- 相机
+- NFC
+- 自动亮度
+- etc
+
+
+## BUG
+
+- AOD亮度太低
+- 小布语音唤醒不可用
+- 关机充电不可用（会自动重启）
+- 有线耳机不可用
+
+## 如何使用
+- 在WSL、ubuntu、deepin等Linux下
+```shell
+    sudo apt update
+    sudo apt upgrade
+    sudo apt install git -y
+    # 克隆项目
+    git clone https://github.com/toraidl/coloros_port_kebab.git
+    cd coloros_port_kebab
+    # 安装依赖
+    sudo ./setup.sh
+    # 开始移植
+    sudo ./port.sh <底包路径> <移植包路径>
 ```
 
-Note: `setup.sh` installs most dependencies, but your environment should also provide common tools such as `git`, `jq`, `md5sum`, and `unix2dos`.
+## 感谢
+> 本项目使用了以下开源项目的部分或全部内容，感谢这些项目的开发者（排名顺序不分先后）。
 
-## Quick start
-1. Install dependencies.
-2. Edit `bin/port_config` if needed.
-3. Run porting command.
-
-Basic:
-
-```bash
-sudo ./port.sh /path/to/base.zip /path/to/port.zip
-```
-
-URLs are supported:
-
-```bash
-sudo ./port.sh "https://example.com/base.zip" "https://example.com/port.zip"
-```
-
-Mixed-port mode (third ROM + selected partitions):
-
-```bash
-sudo ./port.sh /path/base.zip /path/portA.zip /path/portB.zip "my_stock my_region my_manifest my_product"
-```
-
-## Usage
-
-```bash
-sudo ./port.sh <baserom> <portrom> [portrom2] [portparts]
-```
-
-- `baserom`: base ROM zip path or URL
-- `portrom`: source ROM zip path or URL
-- `portrom2`: optional second source ROM for mixed mode
-- `portparts`: optional space-separated partitions taken from `portrom2`
-
-## Packaging modes
-Controlled by `pack_method` in `bin/port_config`.
-
-### `pack_method=stock` (default in current config)
-- Builds target-files style output under `out/target/product/<device>/`
-- Generates OTA package using `otatools/bin/ota_from_target_files`
-
-### `pack_method!=stock`
-- Builds `super.img`
-- Compresses to `super.zst`
-- Creates flashable zip with platform scripts
-
-## Key configuration (`bin/port_config`)
-- `partition_to_port`: comma-separated partitions extracted from source ROM
-- `possible_super_list`: candidate super partition list
-- `repack_with_ext4`: ext4 repack toggle (default false)
-- `remove_data_encryption`: data encryption behavior toggle
-- `super_extended`: manual super extension toggle
-- `pack_method`: output mode (`stock` or flashable)
-
-## High-level workflow
-1. Validate arguments and tools.
-2. Detect ROM package format (`payload`, `img`, or `dat.br` for base).
-3. Extract base and source partitions.
-4. Apply device/common patches.
-5. Repack modified images.
-6. Disable vbmeta verification images.
-7. Package final output.
-
-## Output locations
-- Final zips: `out/`
-- Working images: `build/`
-- Temporary edits: `tmp/`
-
-## Common warnings and what they mean
-- `Kaorios Toolbox: patcher directory not found — skipping`
-	- non-fatal, build continues without that optional patch step
-
-- `0001-core-framework-...patch not found; skipping`
-	- optional patch file missing, non-fatal
-
-- `perl: warning: Setting locale failed`
-	- host locale issue, usually non-fatal for build
-
-- `cp: cannot stat ...` for optional assets
-	- missing optional file; may be harmless or device-feature-specific depending on what was missing
-
-## Troubleshooting
-- If a run fails, inspect the `[ERROR] Script died at line ...` output.
-- Re-run after cleanup if needed:
-
-```bash
-sudo ./port.sh <base> <port>
-```
-
-`port.sh` already clears and recreates key working folders each run.
-
-## Contributing
-PRs and issues are welcome.
-
-When reporting issues, include:
-- full command used
-- last 100+ lines of log
-- base/source ROM names and versions
-- device target folder used
+- [「BypassSignCheck」by Weverses](https://github.com/Weverses/BypassSignCheck)
+- [「contextpatch」 by ColdWindScholar](https://github.com/ColdWindScholar/TIK)
+- [「fspatch」by affggh](https://github.com/affggh/fspatch)
+- [「gettype」by affggh](https://github.com/affggh/gettype)
+- [「lpunpack」by unix3dgforce](https://github.com/unix3dgforce/lpunpack)
+- [「miui_port」by ljc-fight](https://github.com/ljc-fight/miui_port)
+- etc
