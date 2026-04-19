@@ -699,7 +699,7 @@ elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
     fi
     mkdir -p tmp/services/
     cp -rf build/portrom/images/system/system/framework/services.jar tmp/services.jar
-    framework_res=$(find build/portrom/images/ -type f -name "framework-res.apk")
+    framework_res=$(find build/portrom/images/ -type f -name "framework-res.apk" | head -n 1)
     extra_args=""
     if [[ -f "$framework_res" ]];then
         extra_args="-framework $framework_res"
@@ -903,15 +903,15 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
         # AOT speed filter: biggest Geekbench SC impact; faster app cold launch
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=everything"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
         # All 8 cores: Gold+Prime participate in hot-path inlining analysis
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-threads=8"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-cpu-set=0,1,2,3,4,5,6,7"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-swap=false"
         # JIT: lower threshold so hot methods promote to AOT faster
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitthreshold=500"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=128m"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=1024m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=64m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=512m"
         # Boot-time dex2oat on all cores — first-boot compilation finishes faster
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-threads=8"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-cpu-set=0,1,2,3,4,5,6,7"
@@ -1001,7 +1001,7 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
         # IORap: AOSP-side app launch prefetch — complements vendor.perf.iop
         set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
-        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=everything"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.bg-dexopt=speed-profile"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.boot-after-ota=verify"
@@ -1524,7 +1524,7 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
         # AOT compile — biggest Geekbench impact, faster app cold launch
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=everything"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
         # Pin dex2oat to prime+gold cores
         # All 8 cores for dex2oat: A78+X1 participate in hot-path inlining analysis
         # Better AOT code quality = measurably higher IPC on X1 during GB SC
@@ -1685,14 +1685,14 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
 
         # ── ART / dex2oat (SM8350 — not in base block above)
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitthreshold=500"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=128m"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=1024m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=64m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=512m"
         set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.perfetto_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
-        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=everything"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.bg-dexopt=speed-profile"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.boot-after-ota=verify"
@@ -2308,14 +2308,14 @@ EOF
             #   5. No BCL/thermal throttle (vapour chamber + perf_profile thermal table)
 
             # ART/dex2oat: speed filter + JIT tuning (set_prop is idempotent — safe to re-assert)
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.dex2oat-filter=everything"
-            set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.install=everything"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.dex2oat-filter=speed"
+            set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.install=speed"
             set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.bg-dexopt=speed-profile"
             # JIT threshold 250 (vs default 500): hot methods hit AOT compilation
             # faster on X1 — fewer frames spend time in JIT-interpreted code.
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitthreshold=100"
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitinitialsize=128m"
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitmaxsize=1024m"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitthreshold=250"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitinitialsize=64m"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitmaxsize=512m"
             # JIT inline cache: more aggressive inlining = better IPC on X1
             set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jit.codecachesize=0"
 
@@ -2900,8 +2900,8 @@ on property:sys.warpcharge.status=0
 on property:sys.battery.temp_high=1
     # Battery temp > 42°C: step down regardless of charger type.
     # Prevents the BCL from doing a hard cut — smooth step is better UX.
-    write /sys/class/power_supply/battery/input_current_limit 3500000
-    write /sys/class/power_supply/battery/constant_charge_current_max 4000000
+    write /sys/class/power_supply/battery/input_current_limit 4200000
+    write /sys/class/power_supply/battery/constant_charge_current_max 4500000
 
 on property:sys.battery.temp_high=0
     # Temperature normalised: restore.
@@ -3169,7 +3169,7 @@ on property:sys.boot_completed=1
 # ─────────────────────────────────────────────────────────────────────────────
 on property:sys.warpcharge.display_on=1
     # Screen on: keep near-peak Warp while user-active; thermals handle step-down.
-    write /sys/class/power_supply/battery/input_current_limit 6000000
+    write /sys/class/power_supply/battery/input_current_limit 6200000
 
 on property:sys.warpcharge.display_on=0
     # Screen off: allow full Warp 65T.
@@ -3177,37 +3177,61 @@ on property:sys.warpcharge.display_on=0
 
 on property:sys.thermal.gaming_mode=1
     # Gaming + charging: trim current to avoid throttling mid-session.
-    write /sys/class/power_supply/battery/input_current_limit 3500000
+    write /sys/class/power_supply/battery/input_current_limit 4200000
+    # Gaming mode boost: raise CPU/GPU floors for sustained 90/120 fps loads.
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1363200
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1612800
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 280000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 280000000
+    write /dev/cpuctl/top-app/cpu.uclamp.min 58
+    write /dev/stune/top-app/schedtune.boost 23
+    write /sys/module/cpu_boost/parameters/input_boost_ms 70
+    write /proc/sys/kernel/sched_boost 1
+
+on property:sys.thermal.gaming_mode=0
+    # Restore balanced daily profile when gaming mode is disabled.
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1171200
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1171200
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1171200
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1382400
+    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 214000000
+    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 214000000
+    write /dev/cpuctl/top-app/cpu.uclamp.min 55
+    write /dev/stune/top-app/schedtune.boost 18
+    write /sys/module/cpu_boost/parameters/input_boost_ms 55
+    write /proc/sys/kernel/sched_boost 0
 
 OP9PROEOF
 
             # ── OP9 Pro: balanced daily defaults (cooler idle, same burst speed)
             # Lower always-on floors to cut idle heat, keep boosts high for smoothness.
-            sed -i 's/cpu7\/cpufreq\/scaling_min_freq 1516800/cpu7\/cpufreq\/scaling_min_freq 1459200/' \
+            sed -i 's/cpu7\/cpufreq\/scaling_min_freq 1516800/cpu7\/cpufreq\/scaling_min_freq 1382400/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 5000/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 3500/' \
+            sed -i 's/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 5000/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 3200/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             for c in cpu4 cpu5 cpu6; do
-                sed -i "s/${c}\/cpufreq\/scaling_min_freq 1363200/${c}\/cpufreq\/scaling_min_freq 1248000/" \
+                sed -i "s/${c}\/cpufreq\/scaling_min_freq 1363200/${c}\/cpufreq\/scaling_min_freq 1171200/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i "s/${c}\/cpufreq\/schedutil\/hispeed_freq 1363200/${c}\/cpufreq\/schedutil\/hispeed_freq 1318400/" \
+                sed -i "s/${c}\/cpufreq\/schedutil\/hispeed_freq 1363200/${c}\/cpufreq\/schedutil\/hispeed_freq 1248000/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 sed -i "s/${c}\/cpufreq\/schedutil\/down_rate_limit_us 3000/${c}\/cpufreq\/schedutil\/down_rate_limit_us 2500/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             done
-            sed -i 's/cpu7\/cpufreq\/schedutil\/hispeed_freq 1516800/cpu7\/cpufreq\/schedutil\/hispeed_freq 1459200/' \
+            sed -i 's/cpu7\/cpufreq\/schedutil\/hispeed_freq 1516800/cpu7\/cpufreq\/schedutil\/hispeed_freq 1382400/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             # GPU: lower idle floor + slightly longer nap timer for better standby drain.
-            sed -i 's/kgsl-3d0\/min_gpuclk 257000000/kgsl-3d0\/min_gpuclk 234000000/' \
+            sed -i 's/kgsl-3d0\/min_gpuclk 257000000/kgsl-3d0\/min_gpuclk 214000000/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/kgsl-3d0\/devfreq\/min_freq 257000000/kgsl-3d0\/devfreq\/min_freq 234000000/' \
+            sed -i 's/kgsl-3d0\/devfreq\/min_freq 257000000/kgsl-3d0\/devfreq\/min_freq 214000000/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             sed -i 's/kgsl-3d0\/idle_timer 48/kgsl-3d0\/idle_timer 60/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             # Input boost: extend window and warm big/prime for first frames.
-            sed -i 's/input_boost_freq "0:1324800 4:1363200 7:1516800"/input_boost_freq "0:1209600 4:1459200 7:1660800"/' \
+            sed -i 's/input_boost_freq "0:1324800 4:1363200 7:1516800"/input_boost_freq "0:1094400 4:1363200 7:1555200"/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/input_boost_ms 50/input_boost_ms 60/' \
+            sed -i 's/input_boost_ms 50/input_boost_ms 55/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
 
             # ── OP9 Pro: thermal-engine.conf — vapour chamber specific
@@ -3223,31 +3247,31 @@ OP9PROEOF
                 # hysteresis 2000ms: faster recovery because chamber clears junction faster
                 # trip_point: 46.5→47.5°C (0.5° more than base SM8350 block added).
                 # Vapour chamber + graphite stack delays surface heat by ~1.5°C vs bare OP9.
-                # 47.5°C is the maximum safe trip before the user perceives warmth on
+                # 47.0°C keeps sustained performance while reducing frame warmth.
                 # the aluminium frame — above this user comfort drops noticeably.
-                sed -i 's/trip_point=46500/trip_point=47500/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
-                # hysteresis=1500ms: faster recovery than base block's 3000ms.
-                # Vapour chamber clears junction heat in ~800ms — 1500ms re-engages
+                sed -i 's/trip_point=46500/trip_point=47000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                # hysteresis=2000ms balances fast recovery and anti-oscillation.
+                # Vapour chamber clears junction heat in ~800ms — 2000ms re-engages
                 # the throttle just as the thermal wave arrives at the outer sensors.
-                sed -i 's/hysteresis=3000/hysteresis=1500/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/hysteresis=3000/hysteresis=2000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # CPU sensor sampling 100→200ms: 888 thermal spikes faster than 865,
                 # but the vapour chamber makes fast sampling counterproductive —
                 # 100ms catches transients the chamber would clear in <50ms,
                 # causing unnecessary throttle. 200ms matches the chamber response time.
-                sed -i 's/sampling=100/sampling=200/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/sampling=100/sampling=150/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # Skin sensor 2000→4000ms: vapour chamber makes skin a very lagging
                 # indicator — fast skin polling causes oscillating throttle behaviour.
-                sed -i 's/sampling=2000/sampling=4000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/sampling=2000/sampling=3000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # BCL ibat thresholds: raise for Warp 65T VRM capability.
                 # Default 3500mA threshold fires during normal Warp charging + gaming.
                 # Pro's battery management IC + VRM handles 4800mA sustained without issue.
-                sed -i 's/ibat_high=3500/ibat_high=4800/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
-                sed -i 's/ibat_low=3000/ibat_low=4200/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/ibat_high=3500/ibat_high=4600/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/ibat_low=3000/ibat_low=3900/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
                 # Charging temp cutoff: 38→42°C.
                 # At 38°C the charger steps down even during normal ambient temperature use.
                 # 42°C is the electrochemical limit for LiPo — safe margin while avoiding
                 # constant partial-power charging that degrades battery life over time.
-                sed -i 's/batt_temp_charge_limit_low=38/batt_temp_charge_limit_low=42/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/batt_temp_charge_limit_low=38/batt_temp_charge_limit_low=41/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
                 green "OP9 Pro thermal-engine.conf patched (vapour chamber profile)"
             else
                 yellow "OP9 Pro: thermal-engine.conf not found — skipping thermal patch"
@@ -3266,38 +3290,38 @@ OP9PROEOF
             if [[ "${is_12gb_variant}" == true ]]; then
                 # X1 prime floor: 1728000kHz — 12GB means no swap pressure,
                 # so we can keep prime warmer at the cost of slightly higher idle power
-                sed -i 's|cpu7/cpufreq/scaling_min_freq 1459200|cpu7/cpufreq/scaling_min_freq 1728000|' \
+                sed -i 's|cpu7/cpufreq/scaling_min_freq 1382400|cpu7/cpufreq/scaling_min_freq 1612800|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # hispeed on X1 jumps to 1728000 directly (skip 1459200 step)
-                sed -i 's|cpu7/cpufreq/schedutil/hispeed_freq 1459200|cpu7/cpufreq/schedutil/hispeed_freq 1728000|' \
+                sed -i 's|cpu7/cpufreq/schedutil/hispeed_freq 1382400|cpu7/cpufreq/schedutil/hispeed_freq 1612800|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # A78 floor: 1478400kHz — more RAM = can afford warmer big cores
                 for c in cpu4 cpu5 cpu6; do
-                    sed -i "s|${c}/cpufreq/scaling_min_freq 1248000|${c}/cpufreq/scaling_min_freq 1478400|" \
+                    sed -i "s|${c}/cpufreq/scaling_min_freq 1171200|${c}/cpufreq/scaling_min_freq 1363200|" \
                         "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 done
-                sed -i 's|cpu4/cpufreq/schedutil/hispeed_freq 1318400|cpu4/cpufreq/schedutil/hispeed_freq 1478400|' \
+                sed -i 's|cpu4/cpufreq/schedutil/hispeed_freq 1248000|cpu4/cpufreq/schedutil/hispeed_freq 1363200|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # GPU min: 300MHz — can push higher without swap-induced thermal runaway
-                sed -i 's|kgsl-3d0/min_gpuclk 234000000|kgsl-3d0/min_gpuclk 300000000|' \
+                sed -i 's|kgsl-3d0/min_gpuclk 214000000|kgsl-3d0/min_gpuclk 280000000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i 's|kgsl-3d0/devfreq/min_freq 234000000|kgsl-3d0/devfreq/min_freq 300000000|' \
+                sed -i 's|kgsl-3d0/devfreq/min_freq 214000000|kgsl-3d0/devfreq/min_freq 280000000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Post-boot GPU floor re-assert also needs to match
-                sed -i 's|3d0/min_gpuclk 234000000|3d0/min_gpuclk 300000000|g' \
+                sed -i 's|3d0/min_gpuclk 214000000|3d0/min_gpuclk 280000000|g' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i 's|3d0/devfreq/min_freq 234000000|3d0/devfreq/min_freq 300000000|g' \
+                sed -i 's|3d0/devfreq/min_freq 214000000|3d0/devfreq/min_freq 280000000|g' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Post-boot CPU floor re-asserts
-                sed -i 's|cpu7/cpufreq/scaling_min_freq 1459200$|cpu7/cpufreq/scaling_min_freq 1728000|' \
+                sed -i 's|cpu7/cpufreq/scaling_min_freq 1382400$|cpu7/cpufreq/scaling_min_freq 1612800|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # DDR boost: 12GB variant benefits from higher LPDDR5 bus floor
                 # More RAM = more concurrent app frames in flight = more DDR bandwidth needed
-                sed -i 's|bus_dcvs/DDR/boost_freq 2092000|bus_dcvs/DDR/boost_freq 2733000|' \
+                sed -i 's|bus_dcvs/DDR/boost_freq 2092000|bus_dcvs/DDR/boost_freq 2419200|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # uclamp: 12GB can afford slightly higher top-app floor
                 # Base is now 55 — 12GB bumps to 60 (more RAM = less thermal pressure)
-                sed -i 's|cpu.uclamp.min 55$|cpu.uclamp.min 60|' \
+                sed -i 's|cpu.uclamp.min 55$|cpu.uclamp.min 58|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Swappiness: 10 (vs default 30) — with 12GB LPDDR5, swap is almost never needed
                 sed -i 's|/vm/swappiness 30|/vm/swappiness 10|' \
@@ -3322,9 +3346,9 @@ OP9PROEOF
             # JIT threshold: lower value = hot methods promoted to AOT faster.
             # On X1 the JIT interpreter overhead vs AOT is ~8% IPC — reducing
             # threshold means fewer frames spend time in JIT-interpreted code.
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=100"
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=128m"
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=1024m"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
 
             # ART inline cache: 0 = use profile-guided inlining fully.
             # Enables X1 to inline across call sites that weren't seen in training data.
@@ -3403,11 +3427,22 @@ OP9PROEOF
             set_prop "$VENDOR_PATH/default.prop" "persist.vendor.sensors.support_wakelock=false"
 
             # pm.dexopt: aggressive speed compilation for installed + shared APKs.
-            set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.install=everything"
+            set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.install=speed"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.shared_apk=speed"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.bg-dexopt=speed-profile"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.boot-after-ota=verify"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.downgrade_after_inactive_days=7"
+
+            # RAM-aware ART/JIT profile: keep 8GB smooth and 12GB aggressive.
+            if [[ "${is_12gb_variant}" == true ]]; then
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=180"
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=128m"
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=768m"
+            else
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
+                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
+            fi
 
             # Job scheduler optimization: batch background jobs more aggressively.
             set_prop "$SYSTEM_PATH/build.prop" "persist.sys.job_scheduler_optimization_enabled=true"
@@ -3561,14 +3596,18 @@ if [[ ${base_device_family} == "OPSM8350" ]] && [[ -f "devices/common/aod_fix_sm
     blue "SM8350: Fixing AOD brightness issue" "SM8350: Fix AOD brightness"
     unzip -o devices/common/aod_fix_sm8350.zip -d ${work_dir}/build/portrom/images/
 fi
-charger_v6_present=$(find build/portrom/images/odm/bin/hw -maxdepth 1 -type f -name "vendor.oplus.hardware.charger-V6-service")
+charger_v6_present=$(find build/portrom/images/odm/bin/hw -maxdepth 1 -type f -name "vendor.oplus.hardware.charger-V6-service" 2>/dev/null | head -n 1 || true)
 if [[ -z "${charger_v6_present}" ]]; then
     while IFS= read -r charger_file; do
         relative_path=${charger_file#"build/baserom/images/"}
         dest_path="build/portrom/images/${relative_path}"
         mkdir -p "$(dirname "$dest_path")"
         cp -rfv "$charger_file" "$dest_path"
-    done < <(find build/baserom/images/odm build/baserom/images/vendor -type f -name "vendor.oplus.hardware.charger*")
+    done < <({
+        for d in build/baserom/images/odm build/baserom/images/vendor; do
+            [[ -d "$d" ]] && find "$d" -type f -name "vendor.oplus.hardware.charger*" 2>/dev/null
+        done
+    })
 fi
 if [[ "${base_android_version}" == 13 ]] && [[ "${port_android_version}" == 14 ]];then
     ensure_resource_available "devices/common/a13_base_fix.zip" || true
@@ -3798,25 +3837,26 @@ if [[ "${base_device_family}" == "OPSM8250" ]] || [[ "${base_device_family}" == 
         cp -rfv build/${app_patch_folder}/patched/Battery.apk "$targetBattery"
     fi
 fi
-if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
+if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]]; then
     targetSettings=$(find build/portrom/images/ -name "Settings.apk")
-    if [[ -f "$targetSettings" ]];then
+    if [[ -f "$targetSettings" ]]; then
         blue "Charging info in Settings"
-        cp -rf "$targetSettings" tmp/$(basename "$targetSettings").bak
+        cp -rf "$targetSettings" "tmp/$(basename "$targetSettings").bak"
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetSettings" -o tmp/Settings $extra_args
         targetSmali=$(find tmp -type f -name "DeviceChargeInfoController.smali")
         python3 bin/patchmethod_v2.py "$targetSmali" isPreferenceSupport -return true
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o "$targetSettings" $extra_args
     fi
 fi
+
 targetOplusLauncher=$(find build/portrom/images/ -name "OplusLauncher.apk")
-if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]];then
-blue "Enabling RAM display"
-cp -rf "$targetOplusLauncher" tmp/$(basename "$targetOplusLauncher").bak
-java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusLauncher" -o tmp/OplusLauncher $extra_args
-targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
- python3 bin/patchmethod_v2.py "$targetSmali" getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
- java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o "$targetOplusLauncher" $extra_args
+if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]]; then
+    blue "Enabling RAM display"
+    cp -rf "$targetOplusLauncher" "tmp/$(basename "$targetOplusLauncher").bak"
+    java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusLauncher" -o tmp/OplusLauncher $extra_args
+    targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
+    python3 bin/patchmethod_v2.py "$targetSmali" getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
+    java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o "$targetOplusLauncher" $extra_args
 fi
 targetSystemUI=$(find build/portrom/images/ -name "SystemUI.apk")
 if [[ -f build/${app_patch_folder}/patched/SystemUI.apk ]]; then
@@ -3993,7 +4033,7 @@ while IFS= read -r audio_cfg; do
     cp -rfv "$audio_cfg" "$dest_path"
 done < <({
     for d in build/baserom/images/vendor build/baserom/images/odm; do
-        [ -d "$d" ] && find "$d" -type f \( -name "audio_policy*.xml" -o -name "audio_platform*.xml" -o -name "mixer_paths*.xml" -o -name "audio_effects*.xml" \)
+        [ -d "$d" ] && find "$d" -type f \( -name "audio_policy*.xml" -o -name "audio_platform*.xml" -o -name "mixer_paths*.xml" -o -name "audio_effects*.xml" \) 2>/dev/null
     done
 })
 # Only copy Breeno speech model data when NOT doing a GMS injection port.
@@ -4006,7 +4046,12 @@ if [[ -d build/baserom/images/my_product/etc/breenospeech2 ]]; then
     fi
 fi
 rm -rf build/portrom/images/my_product/etc/fusionlight_profile/*
-cp -rf build/baserom/images/my_product/etc/fusionlight_profile/* build/portrom/images/my_product/etc/fusionlight_profile/ || true
+if compgen -G "build/baserom/images/my_product/etc/fusionlight_profile/*" > /dev/null; then
+    mkdir -p build/portrom/images/my_product/etc/fusionlight_profile/
+    cp -rf build/baserom/images/my_product/etc/fusionlight_profile/* build/portrom/images/my_product/etc/fusionlight_profile/
+else
+    yellow "fusionlight_profile not found in baserom — skipping"
+fi
 sed -i "/persist.vendor.display.pxlw.iris_feature=.*/d" build/portrom/images/my_product/etc/bruce/build.prop
 if grep -q "ro.build.version.oplusrom.display" build/portrom/images/my_manifest/build.prop;then
     sed -i '/^ro.build.version.oplusrom.display=/ s/$/ /' build/portrom/images/my_manifest/build.prop
@@ -4087,7 +4132,11 @@ cp -rf build/baserom/images/my_product/etc/permissions/*.xml build/portrom/image
 cp -rf build/baserom/images/my_product/etc/extension/*.xml build/portrom/images/my_product/etc/extension/ || true
 cp -rf build/baserom/images/my_product/etc/refresh_rate_config.xml build/portrom/images/my_product/etc/refresh_rate_config.xml || true
 cp -rf build/baserom/images/my_product/etc/sys_resolution_switch_config.xml build/portrom/images/my_product/etc/sys_resolution_switch_config.xml || true
-cp -rf build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml build/portrom/images/my_product/etc/permissions/ || true
+if [[ -f "build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml" ]]; then
+    cp -rf build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml build/portrom/images/my_product/etc/permissions/
+else
+    yellow "com.oplus.sensor_config.xml not found in baserom — skipping"
+fi
 oplus_features=(
     "oplus.software.directservice.finger_flashnotes_enable^Xiao-Bu Memory"
     "oplus.software.support_quick_launchapp"
@@ -4135,8 +4184,8 @@ oplus_features=(
     "oplus.software.radio.mdlog_buffer_qdss_enable"
     "oplus.software.radio.hfp_comm_shared_support"
 )
-for oplus_feature in ${oplus_features[@]}; do
-    add_feature_v2 oplus_feature $oplus_feature
+for oplus_feature in "${oplus_features[@]}"; do
+    add_feature_v2 oplus_feature "$oplus_feature"
 done
 if [[ $vndk_version -gt 33 ]];then
  add_feature_v2 oplus_feature "oplus.software.radio.networkless_support^Offline Calling (Networkless Call)"
@@ -4211,8 +4260,8 @@ app_features=(
     "os.graphic.gallery.collage.asset_bounds_break^Outside-the-frame^args=\"boolean:true\""
     "os.graphic.gallery.collage.livephoto^^args=\"boolean:true\""
 )
-for app_feature in ${app_features[@]}; do
-    add_feature_v2 app_feature $app_feature
+for app_feature in "${app_features[@]}"; do
+    add_feature_v2 app_feature "$app_feature"
 done
  if [[ ${port_oplusrom_version} == "16.0.1" ]];then
     add_feature_v2  app_feature  "com.oplus.wallpapers.ai_camera_movement^^args=\"boolean:true\""
@@ -4402,11 +4451,17 @@ if [[ ${base_product_device} == "OnePlus8T" ]];then
 fi
 
 
-cp -rf build/baserom/images/my_product/etc/Multimedia_*.xml build/portrom/images/my_product/etc/ || true
+if compgen -G "build/baserom/images/my_product/etc/Multimedia_*.xml" > /dev/null; then
+    cp -rf build/baserom/images/my_product/etc/Multimedia_*.xml build/portrom/images/my_product/etc/
+else
+    yellow "Multimedia_*.xml not found in baserom — skipping"
+fi
 
 
 if [[ -f "tmp/etc/permissions/multimedia_privapp-permissions-oplus.xml" ]];then
-    cp -rfv tmp/etc/permissions/multimedia_*.xml build/portrom/images/my_product/etc/permissions/
+    if compgen -G "tmp/etc/permissions/multimedia_*.xml" > /dev/null; then
+        cp -rfv tmp/etc/permissions/multimedia_*.xml build/portrom/images/my_product/etc/permissions/
+    fi
 fi
 
 
@@ -4416,7 +4471,7 @@ while IFS= read -r file; do
 done < <(find build/baserom/images/my_product/etc/ -type f -name "OVMS_*")
 #fix chinese char
 find build/portrom/images/config -type f -name "*file_contexts" \
-	    -exec perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
+        -exec env LC_ALL=C perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
 #find build/portrom/images/config -type f -name "*file_contexts" -exec sed -i -E '/[\x{4e00}-\x{9fa5}]/d' {} \;
 
 # bootanimation
