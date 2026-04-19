@@ -201,7 +201,7 @@ ensure_resource_available() {
 read_config() {
     local key="$1" default="${2:-}"
     local val
-    val=$(grep "^${key}=" bin/port_config 2>/dev/null | cut -d '=' -f 2- | tr -d '[:space:]')
+    val=$({ grep "^${key}=" bin/port_config 2>/dev/null || true; } | cut -d '=' -f 2- | tr -d '[:space:]')
     echo "${val:-$default}"
 }
 
@@ -535,10 +535,16 @@ if grep -q "ro.vendor.oplus.market.name" build/baserom/images/my_manifest/build.
 else
     base_market_name=$(get_prop build/portrom/images/odm/build.prop "ro.vendor.oplus.market.name")
 fi
-if grep -q "ro.vendor.oplus.market.enname" build/baserom/images/my_manifest/build.prop;then
-    base_market_enname=$(< build/baserom/images/my_manifest/build.prop grep "ro.vendor.oplus.market.enname" |awk 'NR==1' |cut -d '=' -f 2)
-else
-    base_market_enname=$(< build/portrom/images/odm/build.prop grep "ro.vendor.oplus.market.enname" |awk 'NR==1' |cut -d '=' -f 2)
+# Keep this lookup non-fatal when a prop/file is missing under set -euo pipefail.
+base_market_enname=$(get_prop build/baserom/images/my_manifest/build.prop "ro.vendor.oplus.market.enname")
+if [[ -z "$base_market_enname" ]]; then
+    base_market_enname=$(get_prop build/portrom/images/odm/build.prop "ro.vendor.oplus.market.enname")
+fi
+if [[ -z "$base_market_enname" ]]; then
+    base_market_enname=$(grep -r --include="*.prop" "ro.vendor.oplus.market.enname" build/portrom/images/ 2>/dev/null | head -n1 | cut -d'=' -f2 || true)
+fi
+if [[ -z "$base_market_enname" ]]; then
+    base_market_enname="${base_market_name}"
 fi
 port_market_name=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.vendor.oplus.market.name" build/portrom/images/ 2>/dev/null | head -n1 | cut -d'=' -f2 || true)
 green "Market Name: Base [${base_market_name}] / Source [${port_market_name}]"
@@ -553,35 +559,36 @@ green "my_product Type: Base [${base_my_product_type}] / Source [${port_my_produ
 if [[ -n "$port_device_code" ]]; then
     target_display_id=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id" \
         | sed "s/${port_device_code}/${base_device_code}/g")
-    target_display_id_show=$(grep "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop \
-        | awk 'NR==1' | cut -d'=' -f2- \
+    target_display_id_show=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id.show" \
         | sed "s/${port_device_code}/${base_device_code}/g")
 else
     target_display_id=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id")
-    target_display_id_show=$(grep "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop \
-        | awk 'NR==1' | cut -d'=' -f2-)
+    target_display_id_show=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id.show")
     yellow "port_device_code empty — display ID used as-is from portrom"
 fi
 # Fallback: if still empty, use product model as display ID
 if [[ -z "$target_display_id" ]]; then
     target_display_id="${port_product_model}"
 fi
+if [[ -z "$target_display_id_show" ]]; then
+    target_display_id_show="${target_display_id}"
+fi
 base_vendor_brand=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.vendor.brand")
 port_vendor_brand=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.vendor.brand")
-port_ssi_brand=$(< build/portrom/images/system_ext/etc/build.prop grep "ro.oplus.image.system_ext.brand" |awk 'NR==1' |cut -d '=' -f 2)
+port_ssi_brand=$(get_prop build/portrom/images/system_ext/etc/build.prop "ro.oplus.image.system_ext.brand")
 base_product_first_api_level=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.first_api_level")
 port_product_first_api_level=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.first_api_level")
 base_device_family=$(get_prop build/baserom/images/my_product/build.prop "ro.build.device_family")
 target_device_family=$(get_prop build/portrom/images/my_product/build.prop "ro.build.device_family")
 portrom_version_security_patch=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.version.security_patch")
 port_oplusrom_version=$(get_prop build/portrom/images/my_product/build.prop "ro.build.version.oplusrom.confidential")
-port_release_or_codename=$(< build/portrom/images/my_manifest/build.prop grep "ro.build.version.release_or_codename" |awk 'NR==1' |cut -d '=' -f 2)
+port_release_or_codename=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.version.release_or_codename")
 regionmark=$(find build/portrom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d'=' -f2)
 base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d '=' -f2)
 if [ -z "$base_regionmark" ]; then
   base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.oplus.image.my_region.type=" {} \; -quit | cut -d '=' -f2 | cut -d '_' -f1)
 fi
-base_ab_partitions=$(< build/baserom/images/my_manifest/build.prop grep "ro.product.ab_ota_partitions" |awk 'NR==1' |cut -d '=' -f 2)
+base_ab_partitions=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.ab_ota_partitions")
 vendor_cpu_abilist32=$(get_prop build/portrom/images/vendor/build.prop "ro.vendor.product.cpu.abilist32")
 base_area=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.area" build/baserom/images/ 2>/dev/null | head -n1 | cut -d "=" -f2 | tr -d '\r' || true)
 base_brand=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.brand" build/baserom/images/ 2>/dev/null | head -n1 | cut -d "=" -f2 | tr -d '\r' || true)
@@ -646,7 +653,7 @@ if [[ $base_android_version -le 14 ]];then
 
     KEYS="\.name= \.model= \.manufacturer= \.device= \.brand= \.my_product.type="
     for k in $KEYS; do
-        grep "$k" "$BASE_PROP" | while IFS='=' read -r key value; do
+        { grep "$k" "$BASE_PROP" || true; } | while IFS='=' read -r key value; do
             if [[ "$key" == "ro.product.vendor.brand" ]]; then
                 # 特殊处理：强制写 OPPO
                 sed -i "s|^$key=.*|$key=OPPO|" "$PORT_PROP"
@@ -661,7 +668,7 @@ if [[ -n "$vendor_cpu_abilist32" ]] ;then
 fi
 vndk_version=""
 while IFS= read -r prop_file; do
-    vndk_version=$(grep "^ro.vndk.version=" "$prop_file" 2>/dev/null | awk 'NR==1' | cut -d'=' -f2)
+    vndk_version=$(get_prop "$prop_file" "ro.vndk.version")
     if [[ -n "$vndk_version" ]]; then
         yellow "ro.vndk.version=${vndk_version} (found in ${prop_file})"
         break
@@ -742,7 +749,7 @@ elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
     done < <(find tmp/services/smali/*/com/android/server/pm/ tmp/services/smali/*/com/android/server/pm/pkg/parsing/ -maxdepth 1 -type f -name "*.smali" -exec grep -H "$target_method" {} \; | cut -d ':' -f 1)
     ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS='ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS'
     find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while read smali_file; do
-        match_line=$(grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" | head -n 1)
+        match_line=$({ grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" || true; } | head -n 1)
         if [[ -n "$match_line" ]]; then
             line_number=$(echo "$match_line" | cut -d ':' -f 1)
             reg=$(echo "$match_line" | sed -n 's/.*sput-boolean \([^,]*\),.*/\1/p')
@@ -808,7 +815,7 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
     if [[ ! -f "$SYSTEM_PATH/build.prop" || ! -f "$VENDOR_PATH/default.prop" ]]; then
         yellow "Smoothness Addons (SM8250) skipped: required prop files not found"
     else
-        blue "Implementing Smoothness Addons (SM8250) — Rapchick Engine..."
+        blue "Implementing Smoothness Addons (SM8250) — Feather Engine..."
 
         # ── Sub-variant detection ─────────────────────────────────────────────
         # OP8 Pro: 120Hz AMOLED QHD+ curved, OP8T: 120Hz flat FHD+
@@ -896,15 +903,15 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
         # AOT speed filter: biggest Geekbench SC impact; faster app cold launch
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=everything"
         # All 8 cores: Gold+Prime participate in hot-path inlining analysis
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-threads=8"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-cpu-set=0,1,2,3,4,5,6,7"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-swap=false"
         # JIT: lower threshold so hot methods promote to AOT faster
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitthreshold=500"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=64m"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=512m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=128m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=1024m"
         # Boot-time dex2oat on all cores — first-boot compilation finishes faster
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-threads=8"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.boot-dex2oat-cpu-set=0,1,2,3,4,5,6,7"
@@ -994,7 +1001,7 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
         # IORap: AOSP-side app launch prefetch — complements vendor.perf.iop
         set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
-        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=everything"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.bg-dexopt=speed-profile"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.boot-after-ota=verify"
@@ -1132,11 +1139,11 @@ if [[ "${base_device_family}" == "OPSM8250" ]] && \
         # Direct boost to the identified RenderThread — not just top-app cgroup
         # Perf HAL boost at every vsync signal — CPU at target freq before frame starts
 
-        # ── SM8250 rc file — Rapchick Engine ─────────────────────────────────
+        # ── SM8250 rc file — Feather Engine ─────────────────────────────────
         mkdir -p "$VENDOR_PATH/etc/init"
         cat > "$VENDOR_PATH/etc/init/op8_sched.rc" << 'EOF'
 # ─────────────────────────────────────────────────────────────────────────────
-# op8_sched.rc — SM8250 (Snapdragon 865) tuning — Rapchick Engine
+# op8_sched.rc — SM8250 (Snapdragon 865) tuning — Feather Engine
 # Cluster layout: cpu0-3 = Cortex-A55 | cpu4-6 = Cortex-A77 | cpu7 = Cortex-A77 Prime
 # ─────────────────────────────────────────────────────────────────────────────
 on boot
@@ -1517,7 +1524,7 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapminfree=8m"
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.heapmaxfree=32m"
         # AOT compile — biggest Geekbench impact, faster app cold launch
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.dex2oat-filter=everything"
         # Pin dex2oat to prime+gold cores
         # All 8 cores for dex2oat: A78+X1 participate in hot-path inlining analysis
         # Better AOT code quality = measurably higher IPC on X1 during GB SC
@@ -1678,14 +1685,14 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
 
         # ── ART / dex2oat (SM8350 — not in base block above)
         set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitthreshold=500"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=64m"
-        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=512m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitinitialsize=128m"
+        set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.jitmaxsize=1024m"
         set_prop "$SYSTEM_PATH/build.prop"    "persist.device_config.runtime_native_boot.iorap_readahead_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.perfetto_enable=true"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.downgrade_after_inactive_days=7"
-        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=speed"
+        set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.install=everything"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.shared_apk=speed"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.bg-dexopt=speed-profile"
         set_prop "$SYSTEM_PATH/build.prop"    "pm.dexopt.boot-after-ota=verify"
@@ -1734,11 +1741,11 @@ if [[ "${base_device_family}" == "OPSM8350" ]] && \
         set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.job_scheduler_optimization_enabled=true"
         set_prop "$SYSTEM_PATH/build.prop"    "ro.config.shutdown_timeout=3"
 
-        # ── SM8350 rc file — Rapchick Engine ─────────────────────────────────
+        # ── SM8350 rc file — Feather Engine ─────────────────────────────────
         mkdir -p "$VENDOR_PATH/etc/init"
         cat > "$VENDOR_PATH/etc/init/op9_sched.rc" << 'EOF'
 # ─────────────────────────────────────────────────────────────────────────────
-# op9_sched.rc — SM8350 (Snapdragon 888) tuning — Rapchick Engine
+# op9_sched.rc — SM8350 (Snapdragon 888) tuning — Feather Engine
 # Cluster layout: cpu0-3 = Cortex-A55 | cpu4-6 = Cortex-A78 | cpu7 = Cortex-X1
 # ─────────────────────────────────────────────────────────────────────────────
 on boot
@@ -2285,7 +2292,7 @@ EOF
             # IMS (VoLTE/VoWiFi): offload to DSP when screen is off
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.ims_pref_codec=AMR-WB"
 
-            # ── OP9 Pro: Geekbench 6 score optimisation — Rapchick Engine
+            # ── OP9 Pro: Geekbench 6 score optimisation — Feather Engine
             # Target: SC ≥ 1400 / MC ≥ 4000 on SM8350 (Snapdragon 888)
             # Geekbench 6 SC is pure X1 single-thread IPC + memory latency.
             # SC 1400 requires:
@@ -2301,14 +2308,14 @@ EOF
             #   5. No BCL/thermal throttle (vapour chamber + perf_profile thermal table)
 
             # ART/dex2oat: speed filter + JIT tuning (set_prop is idempotent — safe to re-assert)
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.dex2oat-filter=speed"
-            set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.install=speed"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.dex2oat-filter=everything"
+            set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.install=everything"
             set_prop "$SYSTEM_PATH/build.prop"  "pm.dexopt.bg-dexopt=speed-profile"
             # JIT threshold 250 (vs default 500): hot methods hit AOT compilation
             # faster on X1 — fewer frames spend time in JIT-interpreted code.
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitthreshold=250"
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitinitialsize=64m"
-            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitmaxsize=512m"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitthreshold=100"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitinitialsize=128m"
+            set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jitmaxsize=1024m"
             # JIT inline cache: more aggressive inlining = better IPC on X1
             set_prop "$SYSTEM_PATH/build.prop"  "dalvik.vm.jit.codecachesize=0"
 
@@ -2477,7 +2484,7 @@ EOF
 
             cat > "$VENDOR_PATH/etc/init/op9pro_perf.rc" << 'OP9PROEOF'
 # ─────────────────────────────────────────────────────────────────────────────
-# op9pro_perf.rc — OnePlus 9 Pro exclusive tuning — Rapchick Engine
+# op9pro_perf.rc — OnePlus 9 Pro exclusive tuning — Feather Engine
 # Hardware: SM8350 + Adreno 660 + LPDDR5 + LTPO QHD+ + vapour chamber
 # Cluster layout: cpu0-3 = Cortex-A55 | cpu4-6 = Cortex-A78 | cpu7 = Cortex-X1
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3315,9 +3322,9 @@ OP9PROEOF
             # JIT threshold: lower value = hot methods promoted to AOT faster.
             # On X1 the JIT interpreter overhead vs AOT is ~8% IPC — reducing
             # threshold means fewer frames spend time in JIT-interpreted code.
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=250"
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=64m"
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=100"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=128m"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=1024m"
 
             # ART inline cache: 0 = use profile-guided inlining fully.
             # Enables X1 to inline across call sites that weren't seen in training data.
@@ -3396,7 +3403,7 @@ OP9PROEOF
             set_prop "$VENDOR_PATH/default.prop" "persist.vendor.sensors.support_wakelock=false"
 
             # pm.dexopt: aggressive speed compilation for installed + shared APKs.
-            set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.install=speed"
+            set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.install=everything"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.shared_apk=speed"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.bg-dexopt=speed-profile"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.boot-after-ota=verify"
@@ -3412,7 +3419,7 @@ OP9PROEOF
             set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.use_context_priority=true"
 
             green "OP9 Pro performance props injected"
-            green "OP9 Pro exclusive profile applied — Rapchick Engine"
+            green "OP9 Pro exclusive profile applied — Feather Engine"
         fi
         # ════════════════════════════════════════════════════════════════════
     fi
@@ -3464,13 +3471,18 @@ if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true || "${portIsCol
             PATCHER_DIR="${KAORIOS_REPO}/Toolbox-patcher"
             PATCHED_JAR="${PATCHER_DIR}/framework_patched.jar"
 
-            cp -f "${FRAMEWORK_SRC}" "${PATCHER_DIR}/framework.jar"
-            chmod +x "${PATCHER_DIR}/scripts/patcher.sh"
-
-            blue "Patching framework.jar for Kaorios Toolbox..."
-            if ! (cd "${PATCHER_DIR}" && ./scripts/patcher.sh framework.jar); then
-                error "Kaorios Toolbox: framework.jar patcher failed — skipping install"
+            if [[ ! -d "${PATCHER_DIR}" ]]; then
+                error "Kaorios Toolbox: patcher directory not found — skipping"
                 KAORIOS_SKIP=true
+            else
+                cp -f "${FRAMEWORK_SRC}" "${PATCHER_DIR}/framework.jar"
+                chmod +x "${PATCHER_DIR}/scripts/patcher.sh"
+
+                blue "Patching framework.jar for Kaorios Toolbox..."
+                if ! (cd "${PATCHER_DIR}" && ./scripts/patcher.sh framework.jar); then
+                    error "Kaorios Toolbox: framework.jar patcher failed — skipping install"
+                    KAORIOS_SKIP=true
+                fi
             fi
         fi
 
@@ -3957,7 +3969,7 @@ if [[ ! -f build/baserom/images/my_product/etc/extension/sys_graphic_enhancement
 else
     cp -rf build/baserom/images/my_product/etc/extension/sys_graphic_enhancement_config.json build/portrom/images/my_product/etc/extension/ || true
 fi
-if [[ $(grep "ro.oplus.audio.effect.type" build/baserom/images/my_product/build.prop | cut -d'=' -f2) == "dolby" ]]; then
+if [[ $(get_prop build/baserom/images/my_product/build.prop "ro.oplus.audio.effect.type") == "dolby" ]]; then
    blue "Fixing Dolby Acoustics + App Specific volume adjustment (SM8250/SM8350)" "Fix Dolby + App Specific volume adjustment for SM8250/SM8350"
    cp build/baserom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml build/portrom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml
    if [[ -f "devices/common/dolby_fix.zip" ]]; then
@@ -4416,7 +4428,7 @@ elif [[ $baseIsColorOSCN == "true" && ( $portIsColorOSGlobal == "true" || $portI
     cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
 fi
 
-# ── Custom boot animation (ColorOS CN ports only) — Rapchick Engine (@revork)
+# ── Custom boot animation (ColorOS CN ports only) — Feather Engine (@revork)
 # Only runs when the port is ColorOS China (not OOS, not Global).
 # Place bootanimation.zip in the project root next to port.sh.
 # The zip should contain the desc.txt and numbered frame folders at its root.
@@ -4447,7 +4459,7 @@ if [[ -f devices/common/wallpaper.zip ]] && [[ "$portIsColorOSGlobal" == "false"
     unzip -o devices/common/wallpaper.zip -d build/portrom/images
  fi   
 
-# ── 3D wallpaper: save portrom res overlay before baserom wipe — Rapchick Engine
+# ── 3D wallpaper: save portrom res overlay before baserom wipe — Feather Engine
 # my_product/res/ is about to be replaced wholesale from the CN baserom.
 # The portrom (Global EX) carries wallpaper overlay APKs here that enable 3D/live
 # wallpaper — the CN baserom doesn't have them, so without saving them first they
@@ -5260,7 +5272,9 @@ if [[ "$pack_method" == "stock" ]];then
 	        exit 1
 	    fi
 	    ota_zip="${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip"
-        ./bin/ota_from_target_files --partial= --force_minor_version 9 ${work_dir}/out/target/product/${base_product_device}/ ${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip
+        ./bin/ota_from_target_files --partial= -k "${ota_key}" \
+            "${work_dir}/out/target/product/${base_product_device}/" \
+            "${ota_zip}"
 	    ota_rc=$?
 	    popd >/dev/null
 	    if [[ ${ota_rc} -ne 0 || ! -f "${ota_zip}" ]]; then
@@ -5394,7 +5408,7 @@ _BUILD_ELAPSED=$(( SECONDS - _BUILD_START ))
 _BUILD_MM=$(( _BUILD_ELAPSED / 60 ))
 _BUILD_SS=$(( _BUILD_ELAPSED % 60 ))
 green "════════════════════════════════════════════════════════"
-green " Port complete — Rapchick Engine (@revork / Ozyern)"
+green " Port complete — Feather Engine (@revork / Ozyern)"
 green " Output  : ${output_zip:-<see out/ directory>}"
 green " Duration: ${_BUILD_MM}m ${_BUILD_SS}s"
 green "════════════════════════════════════════════════════════"
