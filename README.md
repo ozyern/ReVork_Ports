@@ -1,63 +1,136 @@
-# Project ReVork — ColorOS/OxygenOS Porting
+# coloros_port
 
-A practical toolkit to port ColorOS/OxygenOS/realme UI ROMs onto Qualcomm Snapdragon 865/888 devices with sane defaults for smoothness, thermals, and battery.
+ColorOS/OxygenOS/realme UI ROM porting toolkit for Snapdragon 865/888 class devices.
 
-## 📋 Table of Contents
-- [What changed recently](#what-changed-recently)
-- [Supported devices](#supported-devices)
-- [Performance profiles (ROM side)](#performance-profiles-rom-side)
-- [OnePlus 9 Pro notes](#oneplus-9-pro-notes)
-- [Quick start](#quick-start)
-- [Requirements](#requirements)
-- [Tips](#tips)
-- [Known issues](#known-issues)
-- [Contributing](#contributing)
+This project automates:
+- ROM extraction (payload, img, dat.br)
+- partition merge/override logic (including mixed-port mode)
+- device-specific patching and prop tuning
+- image repacking
+- packaging to OTA-style zip (`pack_method=stock`) or flashable fastboot zip
 
----
+## Supported devices in this repo
+Current device folders under `devices/`:
+- `OnePlus8`
+- `OnePlus8Pro`
+- `OnePlus8T`
+- `OnePlus9`
+- `OnePlus9Pro`
+- `OnePlus9R`
+- `OP4E5D`
 
-## What changed recently
-- OP9 Pro balanced daily profile: lower idle CPU/GPU floors, quicker ramp-down, longer touch boost for first-frame smoothness.
-- Warp Charge restored: full 65W allowed when cool; thermal triggers step down to keep temps in check.
-- ColorOS CN quality-of-life: CN bootanimation apply and 3D wallpaper integration.
-- Debloat additions: removes common HeyTap/Health/IR/QuickGame extras by default.
+Common patches are stored in `devices/common/`.
 
-## Supported devices
-- SM8350 (Snapdragon 888): OnePlus 9, 9 Pro (global/CN), 9R, 9RT, OPPO Find X3 / Pro.
-- SM8250 (Snapdragon 865): OnePlus 8, 8 Pro, 8T.
+## Host requirements
+- Linux (x86_64/aarch64), WSL2, or macOS x86_64
+- `sudo`/root for setup and running `port.sh`
+- large free disk space (recommend 80GB+)
+- enough RAM for APK/smali and image repack workloads (recommend 16GB+)
 
-## Performance profiles (ROM side)
-| Profile | CPU floor | GPU floor | Intent |
-|---------|-----------|-----------|--------|
-| Normal | ~1.2GHz big | ~180MHz | Daily use |
-| Gaming | ~1.5GHz big | ~500MHz | Sustained play |
-| Benchmark | Max lock | ~750MHz | Score runs |
-| Battery Saver | ~600MHz | ~135MHz | Low power |
+Install dependencies:
 
-## OnePlus 9 Pro notes
-- Display: LTPO QHD+ kept at 120Hz when active; drops intelligently on idle/video.
-- Smoothness: input boost 60ms and lower idle clocks keep heat down without hurting scroll.
-- GPU: 234–750MHz by default (300MHz floor on 12GB builds); faster idle timer for better standby.
-- Charging: Warp 65T allowed (6.5A). Screen-on uses ~6.0A. Gaming while charging trims to ~3.5A. Thermal high flag drops to ~3.5–4A and restores when cool.
-- Thermals: vapor-chamber-aware thermal-engine tweaks; balanced BCL thresholds to avoid surprise throttles.
+```bash
+sudo ./setup.sh
+```
+
+Note: `setup.sh` installs most dependencies, but your environment should also provide common tools such as `git`, `jq`, `md5sum`, and `unix2dos`.
 
 ## Quick start
-1) Install deps: sudo ./setup.sh (Ubuntu/WSL).
-2) Run with local zips: sudo ./port.sh /path/to/baserom.zip /path/to/portrom.zip
-3) Or with URLs: sudo ./port.sh "https://example.com/base.zip" "https://example.com/port.zip"
-4) For mixed ports, add optional third/partition args as before.
+1. Install dependencies.
+2. Edit `bin/port_config` if needed.
+3. Run porting command.
 
-## Requirements
-- Linux/WSL, 40GB free, 8GB+ RAM recommended.
-- Android 14+ source ROMs; payload/bin or img-based packages.
+Basic:
 
-## Tips
-- OP9 Pro: flash, then check temps during 10–15 minutes of gaming to confirm the new current limits behave in your environment.
-- ColorOS CN: GApps are not bundled; flash your preferred package separately if you want them.
-- If GitHub assets are missing, place required ROM/tool files manually in their expected paths.
+```bash
+sudo ./port.sh /path/to/base.zip /path/to/port.zip
+```
 
-## Known issues
-- Some kernels omit KGSL nodes used for GPU tuning; those writes are best-effort.
-- Charging current caps still obey the kernel/PMIC hard limits; values above hardware limits are ignored by the driver.
+URLs are supported:
+
+```bash
+sudo ./port.sh "https://example.com/base.zip" "https://example.com/port.zip"
+```
+
+Mixed-port mode (third ROM + selected partitions):
+
+```bash
+sudo ./port.sh /path/base.zip /path/portA.zip /path/portB.zip "my_stock my_region my_manifest my_product"
+```
+
+## Usage
+
+```bash
+sudo ./port.sh <baserom> <portrom> [portrom2] [portparts]
+```
+
+- `baserom`: base ROM zip path or URL
+- `portrom`: source ROM zip path or URL
+- `portrom2`: optional second source ROM for mixed mode
+- `portparts`: optional space-separated partitions taken from `portrom2`
+
+## Packaging modes
+Controlled by `pack_method` in `bin/port_config`.
+
+### `pack_method=stock` (default in current config)
+- Builds target-files style output under `out/target/product/<device>/`
+- Generates OTA package using `otatools/bin/ota_from_target_files`
+
+### `pack_method!=stock`
+- Builds `super.img`
+- Compresses to `super.zst`
+- Creates flashable zip with platform scripts
+
+## Key configuration (`bin/port_config`)
+- `partition_to_port`: comma-separated partitions extracted from source ROM
+- `possible_super_list`: candidate super partition list
+- `repack_with_ext4`: ext4 repack toggle (default false)
+- `remove_data_encryption`: data encryption behavior toggle
+- `super_extended`: manual super extension toggle
+- `pack_method`: output mode (`stock` or flashable)
+
+## High-level workflow
+1. Validate arguments and tools.
+2. Detect ROM package format (`payload`, `img`, or `dat.br` for base).
+3. Extract base and source partitions.
+4. Apply device/common patches.
+5. Repack modified images.
+6. Disable vbmeta verification images.
+7. Package final output.
+
+## Output locations
+- Final zips: `out/`
+- Working images: `build/`
+- Temporary edits: `tmp/`
+
+## Common warnings and what they mean
+- `Kaorios Toolbox: patcher directory not found — skipping`
+	- non-fatal, build continues without that optional patch step
+
+- `0001-core-framework-...patch not found; skipping`
+	- optional patch file missing, non-fatal
+
+- `perl: warning: Setting locale failed`
+	- host locale issue, usually non-fatal for build
+
+- `cp: cannot stat ...` for optional assets
+	- missing optional file; may be harmless or device-feature-specific depending on what was missing
+
+## Troubleshooting
+- If a run fails, inspect the `[ERROR] Script died at line ...` output.
+- Re-run after cleanup if needed:
+
+```bash
+sudo ./port.sh <base> <port>
+```
+
+`port.sh` already clears and recreates key working folders each run.
 
 ## Contributing
-PRs and issues are welcome. Keep changes reproducible and note any device-specific quirks you encounter.
+PRs and issues are welcome.
+
+When reporting issues, include:
+- full command used
+- last 100+ lines of log
+- base/source ROM names and versions
+- device target folder used
