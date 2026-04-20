@@ -4822,10 +4822,9 @@ if [[ ${port_android_version} == 16 ]] && [[ ${base_android_version} -lt 15 ]];t
     echo "vendor.audio.c2.preferred=true" >> build/portrom/images/vendor/build.prop
     echo "vendor.audio.hdr.record.enable=false" >> build/portrom/images/vendor/build.prop
 
-    # Optional: try enabling Master/Master Video modes by swapping ODM camera mode configs.
-    # Note: This is a best-effort hack; configs may be device-specific. Enable explicitly via env var.
-    if [[ "${ENABLE_MASTER_MODE_PATCH:-false}" == "true" ]] && \
-       [[ ${base_device_family} == "OPSM8350" ]] && \
+    # Enable Master/Master Video modes by swapping ODM camera mode configs for OnePlus 9/9Pro.
+    # Note: Confirmed best-effort enhancement for ColorOS/OxygenOS 15/16.
+    if [[ ${base_device_family} == "OPSM8350" ]] && \
        ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]) && \
        [[ -f devices/common/odm_camera_mastermode_config_op15cn_a16.zip ]]; then
         blue "OP9/9Pro: Master mode config patch" "OP9/9Pro: Applying ODM master mode config patch"

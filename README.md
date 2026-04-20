@@ -1,64 +1,86 @@
 <div align="center">
 
-# ColorOS 移植项目
+# ColorOS Port Project
 
-简体中文&nbsp;&nbsp;|&nbsp;&nbsp;[English](/README_en-US.md) 
+[**简体中文**](/README.md)&nbsp;&nbsp;|&nbsp;&nbsp;[**English**](/README_en-US.md)
+
+<p align="center">
+  <b>A powerful tool to port ColorOS and OxygenOS effortlessly.</b><br>
+  <i>Now optimized for OnePlus 9/9 Pro and Snapdragon 865/888 devices!</i>
+</p>
 
 </div>
 
-## 简介
-- ColorOS 一键自动移植打包
+---
 
-## 支持机型
+## 📖 Introduction
+A one-click tool designed to automatically port, modify, unpack, and repack ColorOS / OxygenOS ROMs.
+It enables you to bring newer ColorOS firmware (e.g., from Android 14/15/16) to older capable devices like the OnePlus 8, 9, and Find X3 series.
 
-- 一加8系列（一加8、一加8Pro、一加8T、一加9R）
-- 一加9系列（OnePlus 9、OnePlus9 RT、OnePlus9 Pro）
-- Oppo Find X3、Oppo Find X3 Pro
+## 📱 Supported Devices
 
-## 测试机型及版本
-- BASE: OnePlus 8T (ColorOS_14.0.0.600), OnePlus 8 (ColorOS_IN2010_13.1.190), OnePlus 8 Pro (ColorOS_IN2020_13.1.0.190)
-- PORT: OnePlus 12 (ColorOS_14.0.0.800), OnePlus ACE3V(ColorOS_14.0.1.621)
+### ✅ Officially Supported
+- **OnePlus 8 Series**: OnePlus 8, OnePlus 8 Pro, OnePlus 8T, OnePlus 9R
+- **OnePlus 9 Series**: OnePlus 9, OnePlus 9RT, OnePlus 9 Pro
+- **OPPO Find X3 Series**: Find X3, Find X3 Pro
 
+### 🧪 Tested Firmwares
+- **Base ROM**: OnePlus 8T (ColorOS 14.0.0.600), OnePlus 8/8 Pro (13.1), OnePlus 9 Pro (OxygenOS 14)
+- **Port Source ROM**: OnePlus 12 (14.0.0.800), Ace 3V (14.0.1.621), OPPO Find X8 Pro (ColorOS 16.0), OnePlus 13 (OxygenOS 16)
 
-## 正常工作
-- 人脸
-- 挖孔
-- 指纹
-- 相机
-- NFC
-- 自动亮度
-- etc
+---
 
+## ✨ What's Working
+- ✅ Face Unlock
+- ✅ Camera Cutouts (Punch hole display)
+- ✅ Screen Fingerprint Scanner (FOD)
+- ✅ Camera Features (Hasselblad Master Mode enabled)
+- ✅ NFC
+- ✅ Auto Brightness
+- ✅ 120Hz Smart Refresh Rate
+- ✅ 50W AIRVOOC & 65W SuperVOOC Charging enabled 
 
-## BUG
+## 🐛 Known Bugs
+- ❌ **Breeno Voice Assistant:** Voice wake-up is currently not working.
+- ❌ **Off-Mode Charging:** When the device is off and plugged in, it will auto-reboot.
+- ❌ **Type-C Earphones:** Some wired headsets might not be recognized properly.
 
-- AOD亮度太低
-- 小布语音唤醒不可用
-- 关机充电不可用（会自动重启）
-- 有线耳机不可用
+*(Feel free to submit PRs or place fix zips under your `devices/` directory!)*
 
-## 如何使用
-- 在WSL、ubuntu、deepin等Linux下
-```shell
-    sudo apt update
-    sudo apt upgrade
-    sudo apt install git -y
-    # 克隆项目
-    git clone https://github.com/toraidl/coloros_port_kebab.git
-    cd coloros_port_kebab
-    # 安装依赖
-    sudo ./setup.sh
-    # 开始移植
-    sudo ./port.sh <底包路径> <移植包路径>
+---
+
+## 🚀 How To Use
+It's highly recommended to perform this in a modern Linux environment such as **Ubuntu 20.04/22.04, WSL2, or Deepin**:
+
+```bash
+# 1. Update system and install required apt packages
+sudo apt update && sudo apt upgrade -y
+sudo apt install git curl unzip -y
+
+# 2. Clone the repository
+git clone https://github.com/ozyern/coloros_port.git
+cd coloros_port_kebab
+
+# 3. Setup and install core packaging tools/dependencies
+sudo ./setup.sh
+
+# 4. Start porting!
+# Usage: sudo ./port.sh <Path-to-BaseROM> <Path-to-PortROM>
+sudo ./port.sh /path/to/baserom.zip /path/to/portrom.zip
 ```
 
-## 感谢
-> 本项目使用了以下开源项目的部分或全部内容，感谢这些项目的开发者（排名顺序不分先后）。
+### 📦 OnePlus 9 Pro Specific Enhancements
+Significant optimizations have been engineered specifically for the OnePlus 9 Pro:
+- Restores **Hasselblad Master Mode** configs for newer camera framework implementations.
+- Included logic to detect and flash any custom kernels (like SukiSU or Rapchick) via AnyKernel directly from `devices/OnePlus9Pro/`.
+- Automated `camera5.0/camera6.0` framework injections for full functionality on Android 15 and 16.
+- Integrated `os.charge.settings.wirelesscharging.power` attributes specifically granting 50W wireless capabilities in the Settings app for the device.
+- Full Live Photo configuration injection and NFC APEX replacements for A16 compatibility.
 
-- [「BypassSignCheck」by Weverses](https://github.com/Weverses/BypassSignCheck)
-- [「contextpatch」 by ColdWindScholar](https://github.com/ColdWindScholar/TIK)
-- [「fspatch」by affggh](https://github.com/affggh/fspatch)
-- [「gettype」by affggh](https://github.com/affggh/gettype)
-- [「lpunpack」by unix3dgforce](https://github.com/unix3dgforce/lpunpack)
-- [「miui_port」by ljc-fight](https://github.com/ljc-fight/miui_port)
-- etc
+---
+
+- Massive thanks to every contributor moving the ColorOS custom community forward!
+
+<p align="center">
+  Made with ❤️ by Ozyern & Community
+</p>
