@@ -2,7 +2,6 @@
 
 # ColorOS Port Project
 
-[**简体中文**](/README.md)&nbsp;&nbsp;|&nbsp;&nbsp;[**English**](/README_en-US.md)
 
 <p align="center">
   <b>A powerful tool to port ColorOS and OxygenOS effortlessly.</b><br>
