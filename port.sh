@@ -253,10 +253,10 @@ fi
 blue "Validating Base ROM" "Validating BASEROM.."
 if unzip -l "${baserom}" | grep -q "payload.bin"; then
     baserom_type="payload"
-    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2)
+    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2 || true)
 elif unzip -l "${baserom}" | grep -Eq "br$"; then
     baserom_type="br"
-    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2)
+    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2 || true)
 elif unzip -l "${baserom}" | grep -Eq "\.img$"; then
     baserom_type="img"
 else
@@ -276,8 +276,8 @@ else
     exit 1
 fi
 if unzip -l "${portrom}" | grep -q "META-INF/com/android/metadata"; then
-    version_name=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2)
-    ota_version=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "ota_version=" | cut -d= -f2)
+    version_name=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2 || true)
+    ota_version=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "ota_version=" | cut -d= -f2 || true)
 else
     version_name="$(basename "${portrom%.*}")"
     ota_version="V16.0.0"
@@ -301,7 +301,7 @@ if [[ "$mix_port" == true ]];then
     if unzip -l "${portrom2}" | grep -q "payload.bin"; then
         green "Validation for second ROM successful" "ROM validation passed."
         portrom2_type="payload"
-        version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2)
+        version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2 || true)
     elif unzip -l "${portrom2}" | grep -Eq "\.img$"; then
         portrom2_type="img"
         version_name2="$(basename "${portrom2%.*}")"
@@ -3463,10 +3463,15 @@ if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true || "${portIsCol
     blue "Installing Kaorios Toolbox..."
 
     KAORIOS_REPO="tmp/kaorios"
-    KAORIOS_APK="tmp/KaoriosToolbox.apk"
-    KAORIOS_XML="tmp/privapp_whitelist_com.kousei.kaorios.xml"
-    KAORIOS_VER="V1.0.9"
-    KAORIOS_BASE_URL="https://github.com/Wuang26/Kaorios-Toolbox/releases/download/${KAORIOS_VER}"
+    KAORIOS_PATCHER_TAG="V1.0.9"
+    KAORIOS_VER="V2.0.3"
+    KAORIOS_RELEASE_API="https://api.github.com/repos/Wuang26/Kaorios-Toolbox/releases/tags/${KAORIOS_VER}"
+    KAORIOS_ASSET_ENV="tmp/kaorios_assets_${KAORIOS_VER}.env"
+    KAORIOS_APK="tmp/KaoriosToolbox-${KAORIOS_VER}.apk"
+    KAORIOS_XML="tmp/privapp_whitelist_com.kousei.kaorios-${KAORIOS_VER}.xml"
+    KAORIOS_MODULE_ZIP="tmp/ModuleTemplate-${KAORIOS_VER}.zip"
+    KAORIOS_DEX="tmp/classes-${KAORIOS_VER}.dex"
+    KAORIOS_BAKSMALI_JAR="tmp/baksmali-2.5.2.jar"
     FRAMEWORK_SRC="build/portrom/images/system/system/framework/framework.jar"
     PRIV_APP_DIR="build/portrom/images/system_ext/priv-app/KaoriosToolbox"
     PERMS_DIR="build/portrom/images/system_ext/etc/permissions"
@@ -3475,29 +3480,139 @@ if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true || "${portIsCol
     if [[ ! -f "${FRAMEWORK_SRC}" ]]; then
         yellow "Kaorios Toolbox skipped: framework.jar not found at ${FRAMEWORK_SRC}"
     else
-        # Clone patcher repo (skip if already cloned from a previous run)
+        # Framework patching still uses the scriptable patcher tree from V1.0.9.
+        # Toolbox app/permissions are pulled from the selected KAORIOS_VER release.
+        if [[ -d "${KAORIOS_REPO}/.git" && ! -f "${KAORIOS_REPO}/Toolbox-patcher/scripts/patcher.sh" ]]; then
+            yellow "Kaorios Toolbox: cached repo missing patcher scripts, refreshing ${KAORIOS_PATCHER_TAG}"
+            rm -rf "${KAORIOS_REPO}"
+        fi
         if [[ ! -d "${KAORIOS_REPO}/.git" ]]; then
-            if ! git clone --depth=1 https://github.com/Wuang26/Kaorios-Toolbox.git "${KAORIOS_REPO}"; then
-                error "Kaorios Toolbox: failed to clone patcher repo — skipping"
+            if ! git -c advice.detachedHead=false clone --depth=1 --branch "${KAORIOS_PATCHER_TAG}" https://github.com/Wuang26/Kaorios-Toolbox.git "${KAORIOS_REPO}" -q; then
+                error "Kaorios Toolbox: failed to clone patcher repo tag ${KAORIOS_PATCHER_TAG} — skipping"
                 KAORIOS_SKIP=true
             fi
         fi
 
-        # Download APK
-        if [[ ! -f "${KAORIOS_APK}" ]]; then
-            if ! wget -q --show-progress -O "${KAORIOS_APK}" \
-                    "${KAORIOS_BASE_URL}/KaoriosToolbox-${KAORIOS_VER}.apk"; then
+        # Resolve release assets by API because naming can vary between versions.
+        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
+            if ! python3 - "${KAORIOS_RELEASE_API}" > "${KAORIOS_ASSET_ENV}" <<'PY'; then
+import json
+import sys
+import urllib.request
+
+api_url = sys.argv[1]
+with urllib.request.urlopen(api_url) as resp:
+    payload = json.load(resp)
+
+assets = payload.get("assets", [])
+
+def pick(predicate):
+    for asset in assets:
+        name = (asset.get("name") or "").lower()
+        if predicate(name):
+            return asset.get("browser_download_url") or ""
+    return ""
+
+apk_url = pick(lambda n: n.endswith(".apk") and ("kaoriostoolbox" in n or "kaorios-toolbox" in n) and "patcher" not in n)
+xml_url = pick(lambda n: n.endswith(".xml") and "kousei" in n and "kaorios" in n)
+module_url = pick(lambda n: n.endswith(".zip") and "moduletemplate" in n)
+dex_url = pick(lambda n: n.endswith(".dex") and "classes" in n)
+
+print(f'KAORIOS_APK_URL="{apk_url}"')
+print(f'KAORIOS_XML_URL="{xml_url}"')
+print(f'KAORIOS_MODULE_URL="{module_url}"')
+print(f'KAORIOS_DEX_URL="{dex_url}"')
+PY
+                error "Kaorios Toolbox: failed to fetch release assets for ${KAORIOS_VER} — skipping"
+                KAORIOS_SKIP=true
+            fi
+        fi
+
+        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
+            # shellcheck disable=SC1090
+            source "${KAORIOS_ASSET_ENV}"
+            if [[ -z "${KAORIOS_APK_URL:-}" && -z "${KAORIOS_MODULE_URL:-}" ]]; then
+                error "Kaorios Toolbox: release ${KAORIOS_VER} missing Toolbox APK and ModuleTemplate assets — skipping"
+                KAORIOS_SKIP=true
+            fi
+            if [[ -z "${KAORIOS_XML_URL:-}" && -z "${KAORIOS_MODULE_URL:-}" ]]; then
+                error "Kaorios Toolbox: release ${KAORIOS_VER} missing whitelist XML and ModuleTemplate assets — skipping"
+                KAORIOS_SKIP=true
+            fi
+        fi
+
+        # Download ModuleTemplate if APK/XML must be extracted from it.
+        if [[ "${KAORIOS_SKIP:-false}" != true && \
+            (( -z "${KAORIOS_APK_URL:-}" && ! -s "${KAORIOS_APK}" ) || ( -z "${KAORIOS_XML_URL:-}" && ! -s "${KAORIOS_XML}" )) ]]; then
+            if [[ -z "${KAORIOS_MODULE_URL:-}" ]]; then
+                error "Kaorios Toolbox: ModuleTemplate URL missing for fallback extraction — skipping"
+                KAORIOS_SKIP=true
+            elif [[ ! -s "${KAORIOS_MODULE_ZIP}" ]]; then
+                if ! wget -q --show-progress -O "${KAORIOS_MODULE_ZIP}" "${KAORIOS_MODULE_URL}"; then
+                    error "Kaorios Toolbox: failed to download ModuleTemplate fallback — skipping"
+                    KAORIOS_SKIP=true
+                fi
+            fi
+        fi
+
+        # Download APK/XML from resolved asset URLs (preferred when available).
+        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_APK_URL:-}" && ! -s "${KAORIOS_APK}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_APK}" "${KAORIOS_APK_URL}"; then
                 error "Kaorios Toolbox: failed to download APK — skipping"
                 KAORIOS_SKIP=true
             fi
         fi
-
-        # Download privapp whitelist XML
-        if [[ ! -f "${KAORIOS_XML}" ]]; then
-            if ! wget -q --show-progress -O "${KAORIOS_XML}" \
-                    "${KAORIOS_BASE_URL}/com.kousei.kaorios.xml"; then
+        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_XML_URL:-}" && ! -s "${KAORIOS_XML}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_XML}" "${KAORIOS_XML_URL}"; then
                 error "Kaorios Toolbox: failed to download whitelist XML — skipping"
                 KAORIOS_SKIP=true
+            fi
+        fi
+
+        # Fallback for releases that only provide ModuleTemplate zip.
+        if [[ "${KAORIOS_SKIP:-false}" != true && ! -s "${KAORIOS_APK}" ]]; then
+            if ! unzip -p "${KAORIOS_MODULE_ZIP}" "system/priv-app/KaoriosToolbox/KaoriosToolbox.apk" > "${KAORIOS_APK}"; then
+                error "Kaorios Toolbox: failed to extract APK from ModuleTemplate — skipping"
+                KAORIOS_SKIP=true
+            fi
+        fi
+        if [[ "${KAORIOS_SKIP:-false}" != true && ! -s "${KAORIOS_XML}" ]]; then
+            if ! unzip -p "${KAORIOS_MODULE_ZIP}" "system/etc/permissions/com.kousei.kaorios.xml" > "${KAORIOS_XML}"; then
+                error "Kaorios Toolbox: failed to extract whitelist XML from ModuleTemplate — skipping"
+                KAORIOS_SKIP=true
+            fi
+        fi
+
+        # Optional: sync latest Kaorios utility smali from release classes*.dex.
+        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_DEX_URL:-}" && ! -s "${KAORIOS_DEX}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_DEX}" "${KAORIOS_DEX_URL}"; then
+                yellow "Kaorios Toolbox: classes dex download failed; using bundled patcher utility classes"
+            fi
+        fi
+        if [[ "${KAORIOS_SKIP:-false}" != true && -s "${KAORIOS_DEX}" ]]; then
+            PATCHER_UTILS_DIR="${KAORIOS_REPO}/Toolbox-patcher/kaorios_toolbox/utils/kaorios"
+            TMP_KAORIOS_DEX_DIR="tmp/kaorios_dex_${KAORIOS_VER}"
+            rm -rf "${TMP_KAORIOS_DEX_DIR}"
+            mkdir -p "${TMP_KAORIOS_DEX_DIR}"
+
+            if [[ ! -f "${KAORIOS_BAKSMALI_JAR}" ]]; then
+                wget -q -O "${KAORIOS_BAKSMALI_JAR}" \
+                    "https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar" || true
+            fi
+
+            if [[ -f "${KAORIOS_BAKSMALI_JAR}" ]] && \
+                java -jar "${KAORIOS_BAKSMALI_JAR}" d "${KAORIOS_DEX}" -o "${TMP_KAORIOS_DEX_DIR}/dex" >/dev/null 2>&1; then
+                NEW_UTILS_DIR=$(find "${TMP_KAORIOS_DEX_DIR}/dex" -type d -path "*/com/android/internal/util/kaorios" | head -n1)
+                if [[ -n "${NEW_UTILS_DIR}" ]]; then
+                    rm -rf "${PATCHER_UTILS_DIR}"
+                    mkdir -p "${PATCHER_UTILS_DIR}"
+                    cp -rf "${NEW_UTILS_DIR}/." "${PATCHER_UTILS_DIR}/"
+                    green "Kaorios utility classes synced from ${KAORIOS_VER} dex"
+                else
+                    yellow "Kaorios Toolbox: kaorios utils path not found in dex; using bundled patcher utility classes"
+                fi
+            else
+                yellow "Kaorios Toolbox: dex decompile unavailable; using bundled patcher utility classes"
             fi
         fi
 
