@@ -25,8 +25,8 @@ It enables you to bring newer ColorOS firmware (e.g., from Android 14/15/16) to 
 - **OPPO Find X3 Series**: Find X3, Find X3 Pro
 
 ### 🧪 Tested Firmwares
-- **Base ROM**: OnePlus 8T (ColorOS 14.0.0.600), OnePlus 8/8 Pro (13.1), OnePlus 9 Pro (OxygenOS 14)
-- **Port Source ROM**: OnePlus 12 (14.0.0.800), Ace 3V (14.0.1.621), OPPO Find X8 Pro (ColorOS 16.0), OnePlus 13 (OxygenOS 16)
+- **Base ROM**: OnePlus 8T (ColorOS 14.0.0.600), OnePlus 8/8 Pro (13.1), OnePlus 9 Pro (OxygenOS 14.0.0.1920)
+- **Port Source ROM**: OnePlus 15 (16.0.5.700), OPPO Find X9 Pro (16.0.5.701), OnePlus 13 (CN) (16.0.5.703)
 
 ---
 

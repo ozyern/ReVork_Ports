@@ -3,7 +3,7 @@
 # For A-only and V/A-B Devices
 # Based on Android 14+
 # Test Base ROM: OnePlus 9 Pro (OxygenOS_14.0.0.1920)
-# Test Port ROM: OnePlus 15 (OxygenOS_16.0.3.501), OPPO Find X9 Pro( ColorOS_16.0.5.701) Realme GT Neo5 240W(RMX3708_14.0.0.800)
+# Test Port ROM: OnePlus 15 (OxygenOS_16.0.3.501), OPPO Find X9 Pro (ColorOS_16.0.5.701(Global)) , OPPO Find x9 Ultra(16.0.7)
 ###############################################################################
 # port.sh (ColorOS/OxygenOS/realme UI Porting Script)
 ###############################################################################
