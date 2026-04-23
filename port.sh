@@ -8,7 +8,7 @@
 # port.sh (ColorOS/OxygenOS/realme UI Porting Script)
 ###############################################################################
 set -euo pipefail
-
+set -E   
 # ── ERR trap: report exact line + command on any set -e failure ─────────
 trap 'echo "[ERROR] Script died at line $LINENO — command: $BASH_COMMAND" >&2' ERR
 
@@ -608,7 +608,7 @@ portIsColorOSGlobal=false
 portIsOOS=false
 portIsColorOS=false
 portIsRealmeUI=false
-port_oplusrom_version=$(get_oplusrom_version)
+port_oplusrom_confidential_version=$(grep "ro.build.version.oplusrom.confidential" build/baserom/images/my_manifest/build.prop 2>/dev/null | awk 'NR==1' | cut -d '=' -f 2 || true)
 if [[ "$port_brand" == "realme" ]];then
     portIsRealmeUI=true
 fi
@@ -748,7 +748,7 @@ elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
         old_smali_dir=$smali_dir
     done < <(find tmp/services/smali/*/com/android/server/pm/ tmp/services/smali/*/com/android/server/pm/pkg/parsing/ -maxdepth 1 -type f -name "*.smali" -exec grep -H "$target_method" {} \; | cut -d ':' -f 1)
     ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS='ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS'
-    find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while read smali_file; do
+    find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while IFS= read -r smali_file; do
         match_line=$({ grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" || true; } | head -n 1)
         if [[ -n "$match_line" ]]; then
             line_number=$(echo "$match_line" | cut -d ':' -f 1)
@@ -2375,11 +2375,6 @@ EOF
             set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.llcc.wt_aggr=1"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.wt_aggr=1"
 
-            # GC type: CMS has lower stop-the-world pause than default ConcurrentCopying
-            # for a 512m heap. Stop-the-world GC during GB costs the full pause duration
-            # off the test score — CMS keeps pauses under 3ms vs 8-15ms default.
-            set_prop "$SYSTEM_PATH/build.prop"   "dalvik.vm.gctype=CMS"
-
             # mpctlv3: QTI perf daemon protocol v3 — enables cluster-level freq lock
             # and LLC bandwidth reservation. Required for both 1400 SC and 4000 MC.
             set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.mpctlv3.enable=true"
@@ -2421,8 +2416,6 @@ EOF
             # ── OP9 Pro: LLCC retention + ART
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.retentionmode=1"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.wt_aggr=1"
-            # CMS GC: <3ms stop-the-world vs 8-15ms default for 512m heap on X1.
-            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.gctype=CMS"
             # IORap: record + prefetch app file access — 40-60ms cold-launch saving.
             set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
             set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
@@ -2760,6 +2753,13 @@ on property:vendor.perf.workloadclassifier.enable=true
     # clears sched_boost during its own internal hint timeout, causing a brief
     # frequency drop that costs ~20-30 MC points across the full test run.
     write /proc/sys/kernel/sched_boost_no_override 1
+    # sched_load_boost on A55 during GB — previously only set for big/prime at boot.
+    # MC subtests schedule tasks on ALL cores; A55 without load_boost under-serves
+    # integer/memory workloads causing subtle freq drops between subtest boundaries.
+    write /sys/devices/system/cpu/cpu0/sched_load_boost 10
+    write /sys/devices/system/cpu/cpu1/sched_load_boost 10
+    write /sys/devices/system/cpu/cpu2/sched_load_boost 10
+    write /sys/devices/system/cpu/cpu3/sched_load_boost 10
     # DDR 3732000kHz: the highest LPDDR5 OPP vote on SM8350.
     # At 3024000 the memory bandwidth subtests hit the DDR vote ceiling and stall.
     # 3732000 = full LPDDR5 throughput; gains ~60 MC pts on memory subtests.
@@ -2788,8 +2788,15 @@ on property:vendor.perf.workloadclassifier.enable=false
     write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1516800
     write /proc/sys/kernel/sched_boost 0
     write /proc/sys/kernel/sched_boost_no_override 0
+    # Clear A55 load boost — restore normal EAS priority for little cores
+    write /sys/devices/system/cpu/cpu0/sched_load_boost 0
+    write /sys/devices/system/cpu/cpu1/sched_load_boost 0
+    write /sys/devices/system/cpu/cpu2/sched_load_boost 0
+    write /sys/devices/system/cpu/cpu3/sched_load_boost 0
     write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
     write /sys/devices/system/cpu/bus_dcvs/LLCC/boost_freq 200000
+    # Restore SNOC to normal floor — previously left at 600000kHz max after GB exit
+    write /sys/devices/system/cpu/bus_dcvs/SNOC/boost_freq 300000
     # Release LLC force-cache-on so LLCC can evict idle content normally
     write /sys/devices/system/cpu/bus_dcvs/LLCC/llcc_force_cache_on 0 || true
 
@@ -3334,20 +3341,15 @@ OP9PROEOF
             fi
 
             # ── OP9 Pro: Additional performance props injected into bruce/build.prop
-            # These are not already set by the Smoothness block above.
-
-            # Vulkan pre-rotation: eliminates the GPU blit needed to rotate the
-            # framebuffer for portrait apps on a landscape-native display pipeline.
-            # On QHD+ panels this blit costs 0.3-0.5ms/frame — saved every frame.
-            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.enable_frame_rate_override=false"
-            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_idle_timer_ms=700"
-            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_touch_timer_ms=300"
+            # Note: SF timers (idle=500ms, touch=250ms), enable_frame_rate_override,
+            # and content_detection are already set in the OP9 Pro LTPO block above.
 
             # JIT threshold: lower value = hot methods promoted to AOT faster.
             # On X1 the JIT interpreter overhead vs AOT is ~8% IPC — reducing
             # threshold means fewer frames spend time in JIT-interpreted code.
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
+            # MUST use force_prop — SM8350 base block already set 500 via set_prop
+            force_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
+            force_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
             set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
 
             # ART inline cache: 0 = use profile-guided inlining fully.
@@ -3361,12 +3363,9 @@ OP9PROEOF
             set_prop "$SYSTEM_PATH/build.prop" "ro.iorapd.perfetto_enable=true"
 
             # Fling velocity: higher ceiling = faster scroll momentum on 120Hz LTPO.
+            # MUST use force_prop — SM8350 base block already set 8000 via set_prop
             set_prop "$SYSTEM_PATH/build.prop" "ro.min.fling_velocity=160"
-            set_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=24000"
-
-            # GC: CMS has lower stop-the-world pause than default ConcurrentCopying
-            # for a 512m heap — each GC pause costs the full duration off benchmarks.
-            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.gctype=CMS"
+            force_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=24000"
 
             # PHR (Predictive Headroom): pre-boosts CPU before the next frame budget opens.
             # render_ahead=3: look 3 frames ahead on 120Hz = 25ms headroom window.
@@ -3681,6 +3680,7 @@ if [[ -f build/${app_patch_folder}/patched/oplus-services.jar ]];then
 elif [[ -f "$targetOplusService" ]];then
     blue "Removing GSM Restriction"
     cp -rf "$targetOplusService" tmp/$(basename "$targetOplusService").bak
+    rm -rf tmp/OplusService
     java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusService" -o tmp/OplusService
     targetSmali=$(find tmp -type f -name "OplusBgSceneManager.smali")
     python3 bin/patchmethod.py "$targetSmali" "-isGmsRestricted"
@@ -3841,7 +3841,7 @@ if [[ "${port_android_version}" -ge 15 ]]; then
         fi
     fi
 fi
-echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
+set_prop "build/portrom/images/vendor/default.prop" "ro.surface_flinger.game_default_frame_rate_override=120"
 targetAICallAssistant=$(find build/portrom/images/ -name "HeyTapSpeechAssist.apk")
 if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
     blue "Copying processed HeyTapSpeechAssist.apk"
@@ -3849,6 +3849,7 @@ if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
 elif [[ -f "$targetAICallAssistant" ]];then
         blue "Unlock AI Call"
         cp -rf "$targetAICallAssistant" "tmp/$(basename "$targetAICallAssistant").bak"
+        rm -rf tmp/HeyTapSpeechAssist
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetAICallAssistant" -o tmp/HeyTapSpeechAssist $extra_args
         targetSmali=$(find tmp -type f -name "AiCallCommonBean.smali")
         python3 bin/patchmethod_v2.py "$targetSmali" getSupportAiCall -return true
@@ -3870,6 +3871,7 @@ if [[ "$ota_patched" == "false" ]];then
     elif [[ -f "$targetOTA" ]];then
         blue "Removing OTA dm-verity"
         cp -rf "$targetOTA" "tmp/$(basename "$targetOTA").bak"
+        rm -rf tmp/OTA
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetOTA" -o tmp/OTA $extra_args
         targetSmali=$(find tmp -type f -path "*/com/oplus/common/a.smali")
         python3 bin/patchmethod_v2.py -d tmp/OTA -k ro.boot.vbmeta.device_state locked -return false
@@ -3877,7 +3879,7 @@ if [[ "$ota_patched" == "false" ]];then
          cp -rfv "build/${app_patch_folder}/patched/OTA.apk" "$targetOTA"
     fi
 fi
-EXTEDNED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
+EXTENDED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
 targetAIUnit=$(find build/portrom/images/ -name "AIUnit.apk")
 MODEL=PLG110
 [[ "$regionmark" != CN ]] && MODEL=CPH2745
@@ -3887,6 +3889,7 @@ if [[ -f "build/${app_patch_folder}/patched/AIUnit.apk" ]]; then
 elif [[ -f "$targetAIUnit" ]];then
     blue "Unlock High-End AI features, Device Model: $MODEL"
     cp -rf "$targetAIUnit" "tmp/$(basename "$targetAIUnit").bak"
+    rm -rf tmp/AIUnit
     java -jar bin/apktool/APKEditor.jar d -f -i "$targetAIUnit" -o tmp/AIUnit $extra_args
     find tmp/AIUnit -type f -name "*.smali" -exec sed -i "s/sget-object \([vp][0-9]\+\), Landroid\/os\/Build;->MODEL:Ljava\/lang\/String;/const-string \1, \"$MODEL\"/g" {} +
     targetSmali=$(find tmp -type f -name "UnitConfig.smali")
@@ -3894,7 +3897,7 @@ elif [[ -f "$targetAIUnit" ]];then
     python3 bin/patchmethod_v2.py "$targetSmali" isWhiteConditionsMatch
     python3 bin/patchmethod_v2.py "$targetSmali" isSupport
     unit_config_list=$(find tmp/AIUnit -type f -name "unit_config_list.json")
-    jq --arg models_str "${EXTEDNED_MODELS[*]}" '
+    jq --arg models_str "${EXTENDED_MODELS[*]}" '
         ($models_str | split(" ")) as $new_models
         | map(
             if has("whiteModels") and (.whiteModels | type) == "string" then
@@ -3946,17 +3949,19 @@ if [[ "${base_device_family}" == "OPSM8250" ]] || [[ "${base_device_family}" == 
     elif [[ -f "$targetBattery" ]];then
         blue "Patch Battery Health Maximum capacity"
         cp -rf "$targetBattery" tmp/$(basename "$targetBattery").bak
+        rm -rf tmp/Battery
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetBattery" -o tmp/Battery $extra_args
         python3 bin/patchmethod_v2.py -d tmp/Battery/ -k "getUIsohValue" -m devices/common/patch_battery_soh.txt
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Battery -o build/${app_patch_folder}/patched/Battery.apk $extra_args
         cp -rfv build/${app_patch_folder}/patched/Battery.apk "$targetBattery"
     fi
 fi
-if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]]; then
-    targetSettings=$(find build/portrom/images/ -name "Settings.apk")
+targetSettings=$(find build/portrom/images/ -name "Settings.apk")
+if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20*" ]];then
     if [[ -f "$targetSettings" ]]; then
         blue "Charging info in Settings"
         cp -rf "$targetSettings" "tmp/$(basename "$targetSettings").bak"
+        rm -rf tmp/Settings
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetSettings" -o tmp/Settings $extra_args
         targetSmali=$(find tmp -type f -name "DeviceChargeInfoController.smali")
         python3 bin/patchmethod_v2.py "$targetSmali" isPreferenceSupport -return true
@@ -3964,6 +3969,20 @@ if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]]; then
     fi
 fi
 
+if [[ ${regionmark} == "CN" ]] && [[ ${port_oplusrom_confidential_version} == "V16.1.0" ]];then
+    if [[ -f $targetSettings ]];then
+        blue "Forcing Settings to use 16.1.0 assets..."
+        cp -rf $targetSettings tmp/$(basename $targetSettings).bak
+        rm -rf tmp/Settings
+        java -jar bin/apktool/APKEditor.jar d -f -i $targetSettings -o tmp/Settings $extra_args
+        targetSmali=$(find tmp -type f -name "AboutDeviceOtaUpdatePreference.smali")
+        python3 bin/patchmethod_v2.py $targetSmali isCurrentOSColorOS161Resources -return true
+        java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o $targetSettings $extra_args
+    fi
+    blue "Fixing mediaserver crashes"
+    unzip -o devices/common/16.1-mediaserver-fix.zip -d build/portrom/images/ 
+
+fi
 targetOplusLauncher=$(find build/portrom/images/ -name "OplusLauncher.apk")
 if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]]; then
     blue "Enabling RAM display"
