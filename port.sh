@@ -5,7 +5,7 @@
 # Targets  : A-only and V/A-B devices  ·  Android 14+
 # Author   : @ozyern (Ozyern)          ·  github.com/ozyern
 # Base ROM : OnePlus 9 Pro lemonadep   ·  OxygenOS_14.0.0.1920
-# Tested   : OnePlus 15 (OOS 16.0.3.501) · OnePlus ACE3V (COS 14.0.1.621)
+# Tested   : OnePlus 15 (OOS 16.0.3.501) · OnePlus 13 (CN) (COS 16.0.5)
 #            Realme GT Neo5 240W (RMX3708_14.0.0.800)
 # Version  : Feather Engine v2 (KaoriosToolbox V2.0.3)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3632,6 +3632,9 @@ blue "Installing Kaorios Toolbox..."
     KAORIOS_DEX="tmp/classes_kaorios.dex"
     KAORIOS_VER="V2.0.3"
     KAORIOS_BASE_URL="https://github.com/Wuang26/Kaorios-Toolbox/releases/download/${KAORIOS_VER}"
+    # Legacy/v1 fallback endpoints (older releases used simpler asset names / tags)
+    KAORIOS_LEGACY_BASE_URL="https://github.com/Wuang26/Kaorios-Toolbox/releases/download/V1"
+    KAORIOS_LATEST_URL="https://github.com/Wuang26/Kaorios-Toolbox/releases/latest/download"
     FRAMEWORK_SRC="build/portrom/images/system/system/framework/framework.jar"
     PRIV_APP_DIR="build/portrom/images/system_ext/priv-app/KaoriosToolbox"
     PERMS_DIR="build/portrom/images/system_ext/etc/permissions"
@@ -3642,15 +3645,22 @@ blue "Installing Kaorios Toolbox..."
     if [[ ! -f "${FRAMEWORK_SRC}" ]]; then
         yellow "Kaorios Toolbox skipped: framework.jar not found at ${FRAMEWORK_SRC}"
     else
-        # Download toolbox APK (legacy filename still used by some tags)
+        # Download toolbox APK (v2 first, then legacy v1/latest fallbacks)
         if [[ ! -f "${KAORIOS_APK}" ]]; then
             if ! wget -q --show-progress -O "${KAORIOS_APK}" \
                     "${KAORIOS_BASE_URL}/KaoriosToolbox-${KAORIOS_VER}.apk"; then
                 yellow "Kaorios Toolbox: legacy APK asset missing, trying latest patcher APK"
                 if ! wget -q --show-progress -O "${KAORIOS_PATCHER_APK}" \
                         "${KAORIOS_BASE_URL}/Kaorios-Patcher_${KAORIOS_VER}.9-1.apk"; then
-                    error "Kaorios Toolbox: failed to download toolbox APK asset — skipping install"
-                    KAORIOS_SKIP=true
+                    yellow "Kaorios Toolbox: v2 assets unavailable, trying legacy v1 APK endpoints"
+                    if ! wget -q --show-progress -O "${KAORIOS_APK}" \
+                            "${KAORIOS_LEGACY_BASE_URL}/KaoriosToolbox.apk"; then
+                        if ! wget -q --show-progress -O "${KAORIOS_APK}" \
+                                "${KAORIOS_LATEST_URL}/KaoriosToolbox.apk"; then
+                            error "Kaorios Toolbox: failed to download toolbox APK asset — skipping install"
+                            KAORIOS_SKIP=true
+                        fi
+                    fi
                 fi
             fi
         fi
@@ -3680,12 +3690,25 @@ blue "Installing Kaorios Toolbox..."
             mkdir -p "$(dirname "${PATCHED_JAR}")"
             blue "Patching framework.jar for Kaorios Toolbox (release dex method)..."
             if unzip -oq "${FRAMEWORK_SRC}" -d "${KAORIOS_TMP_DIR}/framework"; then
-                FRAMEWORK_TARGET_DEX=$(ls "${KAORIOS_TMP_DIR}/framework"/classes*.dex 2>/dev/null | sort -V | tail -n1 || true)
-                if [[ -z "${FRAMEWORK_TARGET_DEX}" ]]; then
+                # Inject Kaorios dex as a NEW numbered shard — never replace an existing one.
+                # Replacing the last shard destroys original framework classes → system_server
+                # cannot find them at boot → ClassNotFoundException → crash → bootloop at bootanim.
+                if ! ls "${KAORIOS_TMP_DIR}/framework"/classes*.dex &>/dev/null; then
                     error "Kaorios Toolbox: no classes*.dex inside framework.jar — skipping"
                     KAORIOS_SKIP=true
                 else
-                    cp -f "${KAORIOS_DEX}" "${FRAMEWORK_TARGET_DEX}"
+                    # Find highest numbered shard already present (classes2.dex → 2, classes5.dex → 5).
+                    # classes.dex (no number) is treated as shard 1; if no numbered shards exist yet
+                    # we inject as classes2.dex so classes.dex is left untouched.
+                    LAST_DEX_N=$(ls "${KAORIOS_TMP_DIR}/framework"/classes*.dex 2>/dev/null \
+                        | grep -oP '(?<=classes)[0-9]+(?=\.dex)' | sort -n | tail -1 || true)
+                    if [[ -z "${LAST_DEX_N}" ]]; then
+                        NEXT_DEX="${KAORIOS_TMP_DIR}/framework/classes2.dex"
+                    else
+                        NEXT_DEX="${KAORIOS_TMP_DIR}/framework/classes$((LAST_DEX_N + 1)).dex"
+                    fi
+                    blue "Kaorios Toolbox: injecting dex as $(basename "${NEXT_DEX}") (preserving all existing shards)"
+                    cp -f "${KAORIOS_DEX}" "${NEXT_DEX}"
                     (
                         cd "${KAORIOS_TMP_DIR}/framework" &&
                         zip -qr "${PATCHED_JAR}" .
@@ -4642,32 +4665,82 @@ find build/portrom/images/config -type f -name "*file_contexts" \
 	    -exec perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
 #find build/portrom/images/config -type f -name "*file_contexts" -exec sed -i -E '/[\x{4e00}-\x{9fa5}]/d' {} \;
 
-# bootanimation
-if [[ $baseIsOOS == "true" && $portIsOOS == "true" ]]; then
+# ── Boot animation — Feather Engine (@ozyern)
+# Priority order:
+#   1. Mixed port  → portrom2 (my_product donor) ; fallback: portrom ; fallback: baserom
+#   2. OOS→OOS     → baserom (lemonadep OOS animation)
+#   3. CN→Global   → baserom
+#   4. CN custom   → bootanimation.zip from project root (unzipped into media/bootanimation/)
+if [[ "${mix_port}" == true ]] && [[ -n "${version_name2}" ]]; then
+    # Mixed port: keep portrom2 bootanimation by default (it owns my_product in mixed mode).
+    # If missing, try to recover from portrom's cached my_product.img, then baserom.
+    PORTROM1_MY_PRODUCT_IMG="${work_dir}/build/${version_name}/my_product.img"
+    PORTROM1_TMP="${work_dir}/tmp/fe_portrom1_my_product"
+    _bootanim_installed=false
+    if [[ -e build/portrom/images/my_product/media/bootanimation ]] || \
+       [[ -f build/portrom/images/my_product/media/bootanimation.zip ]]; then
+        green "Mixed port: using portrom2 bootanimation from mixed my_product source"
+        _bootanim_installed=true
+    fi
+    if [[ "${_bootanim_installed}" != true ]] && [[ -f "${PORTROM1_MY_PRODUCT_IMG}" ]]; then
+        blue "Mixed port: portrom2 bootanimation missing, extracting fallback from ${version_name}/my_product.img"
+        rm -rf "${PORTROM1_TMP}"
+        mkdir -p "${PORTROM1_TMP}"
+        # extract_partition <img> <parent_dir> → creates <parent_dir>/my_product/
+        if extract_partition "${PORTROM1_MY_PRODUCT_IMG}" "${PORTROM1_TMP}" 2>/dev/null; then
+            _p1_anim_dir="${PORTROM1_TMP}/my_product/media/bootanimation"
+            _p1_anim_zip="${PORTROM1_TMP}/my_product/media/bootanimation.zip"
+            rm -rf build/portrom/images/my_product/media/bootanimation
+            rm -rf build/portrom/images/my_product/media/bootanimation.zip
+            if [[ -e "${_p1_anim_dir}" ]]; then
+                cp -rf "${_p1_anim_dir}" build/portrom/images/my_product/media/
+                green "Mixed port: fallback bootanimation (dir) installed from ${version_name}"
+                _bootanim_installed=true
+            elif [[ -f "${_p1_anim_zip}" ]]; then
+                cp -f "${_p1_anim_zip}" build/portrom/images/my_product/media/bootanimation.zip
+                green "Mixed port: fallback bootanimation (zip) installed from ${version_name}"
+                _bootanim_installed=true
+            fi
+        fi
+        rm -rf "${PORTROM1_TMP}" 2>/dev/null || true
+    fi
+    if [[ "${_bootanim_installed}" != true ]]; then
+        yellow "Mixed port: bootanimation missing in portrom2/portrom — falling back to baserom"
+        cp -rf build/baserom/images/my_product/media/bootanimation \
+            build/portrom/images/my_product/media/ || true
+        cp -rf build/baserom/images/my_product/media/bootanimation.zip \
+            build/portrom/images/my_product/media/ || true
+    fi
+    unset PORTROM1_MY_PRODUCT_IMG PORTROM1_TMP _bootanim_installed _p1_anim_dir _p1_anim_zip
+elif [[ $baseIsOOS == "true" && $portIsOOS == "true" ]]; then
     rm -rf build/portrom/images/my_product/media/bootanimation
+    rm -rf build/portrom/images/my_product/media/bootanimation.zip
     cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
+    cp -rf build/baserom/images/my_product/media/bootanimation.zip build/portrom/images/my_product/media/ || true
 elif [[ $baseIsColorOSCN == "true" && ( $portIsColorOSGlobal == "true" || $portIsColorOS == "true" ) ]]; then
     rm -rf build/portrom/images/my_product/media/bootanimation
+    rm -rf build/portrom/images/my_product/media/bootanimation.zip
     cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
+    cp -rf build/baserom/images/my_product/media/bootanimation.zip build/portrom/images/my_product/media/ || true
 fi
 
 # ── Custom boot animation (ColorOS CN ports only) — Feather Engine (@ozyern)
-# Only runs when the port is ColorOS China (not OOS, not Global).
 # Place bootanimation.zip in the project root next to port.sh.
-# The zip should contain the desc.txt and numbered frame folders at its root.
+# The zip must contain desc.txt + numbered frame folders at its root (or nested
+# in a single bootanimation/ subfolder which is auto-flattened below).
 if [[ "${portIsColorOS}" == true ]]; then
     if [[ -f "bootanimation.zip" ]]; then
         blue "ColorOS CN port: installing custom boot animation from bootanimation.zip"
         rm -rf build/portrom/images/my_product/media/bootanimation
-        # Unzip directly into media/ — Android expects media/bootanimation/ to be
-        # a directory whose contents are desc.txt + frame folders, not a nested zip.
-        # If the zip has a top-level bootanimation/ folder the cp below flattens it;
-        # if the zip root IS the animation files they land correctly either way.
+        rm -rf build/portrom/images/my_product/media/bootanimation.zip
+        # Android expects media/bootanimation/ to be a directory containing desc.txt
+        # and the numbered frame folders directly — NOT a zip file at that path.
         mkdir -p build/portrom/images/my_product/media/bootanimation
         unzip -o bootanimation.zip -d build/portrom/images/my_product/media/bootanimation
-        # If the zip had a nested bootanimation/ folder, flatten it
+        # Flatten if the zip had a top-level bootanimation/ folder inside it
         if [[ -d build/portrom/images/my_product/media/bootanimation/bootanimation ]]; then
-            cp -rf build/portrom/images/my_product/media/bootanimation/bootanimation/*                 build/portrom/images/my_product/media/bootanimation/
+            cp -rf build/portrom/images/my_product/media/bootanimation/bootanimation/* \
+                build/portrom/images/my_product/media/bootanimation/
             rm -rf build/portrom/images/my_product/media/bootanimation/bootanimation
         fi
         green "Custom boot animation installed"
@@ -4714,7 +4787,8 @@ cp -rf build/baserom/images/my_product/res/* build/portrom/images/my_product/res
 if [[ "${portIsColorOS}" == true ]] && [[ "${regionmark}" == "CN" ]]; then
     if [[ -d tmp/portrom_wallpaper_res_backup ]] &&        [[ -n "$(ls -A tmp/portrom_wallpaper_res_backup 2>/dev/null)" ]]; then
         cp -rf tmp/portrom_wallpaper_res_backup/*             build/portrom/images/my_product/res/
-        green "3D wallpaper: restored ${$(ls tmp/portrom_wallpaper_res_backup | wc -l)} overlay APK(s) from Global EX portrom"
+        restored_wallpaper_count=$(ls -1 tmp/portrom_wallpaper_res_backup 2>/dev/null | wc -l)
+        green "3D wallpaper: restored ${restored_wallpaper_count} overlay APK(s) from Global EX portrom"
     fi
     # Restore 3D wallpaper media asset dirs
     if [[ -d tmp/portrom_wallpaper_media_backup ]] &&        [[ -n "$(ls -A tmp/portrom_wallpaper_media_backup 2>/dev/null)" ]]; then
