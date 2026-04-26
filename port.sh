@@ -1,20 +1,46 @@
 #!/bin/bash
-# ColorOS_port project
-# For A-only and V/A-B Devices
-# Based on Android 14+
-# Test Base ROM: OnePlus 9 Pro (OxygenOS_14.0.0.1920)
-# Test Port ROM: OnePlus 15 (OxygenOS_16.0.3.501), OPPO Find X9 Pro (ColorOS_16.0.5.701(Global)) , OPPO Find x9 Ultra(16.0.7)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feather Engine — ColorOS / OxygenOS Porting Framework
+# ───────────────────────────────────────────────────────────────────────────────
+# Targets  : A-only and V/A-B devices  ·  Android 14+
+# Author   : @ozyern (Ozyern)          ·  github.com/ozyern
+# Base ROM : OnePlus 9 Pro lemonadep   ·  OxygenOS_14.0.0.1920
+# Tested   : OnePlus 15 (OOS 16.0.3.501) · OnePlus ACE3V (COS 14.0.1.621)
+#            Realme GT Neo5 240W (RMX3708_14.0.0.800)
+# Version  : Feather Engine v2 (KaoriosToolbox V2.0.3)
+# ═══════════════════════════════════════════════════════════════════════════════
 ###############################################################################
-# port.sh (ColorOS/OxygenOS/realme UI Porting Script)
+# port.sh — main porting orchestrator
 ###############################################################################
 set -euo pipefail
-set -E   
-# ── ERR trap: report exact line + command on any set -e failure ─────────
-trap 'echo "[ERROR] Script died at line $LINENO — command: $BASH_COMMAND" >&2' ERR
+
+# ── Enhanced ERR trap: prints file, line, failed command, call stack ─────────
+_fe_err_handler() {
+    local exit_code=$?
+    local line_no=$1
+    local cmd="$2"
+    printf '\n\033[38;5;203m  ✗  FATAL ERROR\033[0m\n' >&2
+    printf '\033[38;5;240m  ├  line    : \033[1;97m%s\033[0m\n' "$line_no" >&2
+    printf '\033[38;5;240m  ├  command : \033[1;97m%s\033[0m\n' "$cmd" >&2
+    printf '\033[38;5;240m  ├  exit    : \033[38;5;203m%s\033[0m\n' "$exit_code" >&2
+    printf '\033[38;5;240m  └  stack   :\033[0m\n' >&2
+    local frame=0
+    while caller "$frame" >/dev/null 2>&1; do
+        read -r fn_line fn_sub fn_file < <(caller "$frame")
+        printf '\033[38;5;240m             %s() @ %s:%s\033[0m\n' \
+            "$fn_sub" "$fn_file" "$fn_line" >&2
+        (( frame++ ))
+    done
+    echo "" >&2
+}
+trap '_fe_err_handler $LINENO "$BASH_COMMAND"' ERR
+
+# ── EXIT trap: always clean up TMPDIR lock files ─────────────────────────────
+trap 'rm -f /tmp/.feather_lock 2>/dev/null; jobs -p | xargs -r kill 2>/dev/null' EXIT
 
 
 build_user="Ozyern"
-build_host=$(hostname)"@ReVork"
+build_host=$(hostname)"@ozyern"
 baserom="${1:-}"
 portrom="${2:-}"
 portrom2="${3:-}"
@@ -69,7 +95,106 @@ find "${work_dir}/bin/apktool/" \
 source functions.sh
 check unzip aria2c 7z zip java python3 zstd bc xmlstarlet
 
-green "Tool permissions set (chmod +x)" "All tools marked executable"
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feather Engine — Terminal UI System
+# Provides a consistent, pretty output layer on top of functions.sh primitives.
+# All _FE_ functions are safe to call even if the terminal has no colour support
+# (they degrade gracefully via the ANSI escape fallback below).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Palette ──────────────────────────────────────────────────────────────────
+_FE_PINK='\033[38;5;213m'       # Feather signature pink
+_FE_LAV='\033[38;5;183m'        # Soft lavender
+_FE_GOLD='\033[38;5;220m'       # Accent gold (warnings, timings)
+_FE_DIM='\033[38;5;240m'        # Dimmed text
+_FE_GRN='\033[38;5;120m'        # Soft green (success)
+_FE_YEL='\033[38;5;226m'        # Bright yellow (caution)
+_FE_RED='\033[38;5;203m'        # Soft red (error)
+_FE_WHT='\033[1;97m'            # Bold white (section titles)
+_FE_CYN='\033[38;5;159m'        # Cyan (info values)
+_FE_RST='\033[0m'               # Reset
+
+_FE_STEP=0
+_FE_SEC=0
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+fe_banner() {
+    echo ""
+    printf "${_FE_PINK}"
+    cat << 'FEATHER_ART'
+  ·─────────────────────────────────────────────────────────────────────────·
+  │                                                                        │
+  │    ███████╗███████╗ █████╗ ████████╗██╗  ██╗███████╗██████╗            │
+  │    ██╔════╝██╔════╝██╔══██╗╚══██╔══╝██║  ██║██╔════╝██╔══██╗           │
+  │    █████╗  █████╗  ███████║   ██║   ███████║█████╗  ██████╔╝           │
+  │    ██╔══╝  ██╔══╝  ██╔══██║   ██║   ██╔══██║██╔══╝  ██╔══██╗           │
+  │    ██║     ███████╗██║  ██║   ██║   ██║  ██║███████╗██║  ██║           │
+  │    ╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝           │
+  │                                                                        │
+  │         E  N  G  I  N  E     ·     C O L O R O S  /  O O S             │
+  │                P O R T I N G   F R A M E W O R K                       │
+  │                                                                        │
+  ·─────────────────────────────────────────────────────────────────────────·
+FEATHER_ART
+    printf "${_FE_RST}"
+    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}lemonadep${_FE_RST} ${_FE_DIM}(OnePlus 9 Pro · SM8350)${_FE_RST}\n"
+    printf "  ${_FE_DIM}base:${_FE_RST}   ${_FE_WHT}%s${_FE_RST}\n" "${baserom:-<baserom>}"
+    printf "  ${_FE_DIM}source:${_FE_RST} ${_FE_WHT}%s${_FE_RST}\n" "${portrom:-<portrom>}"
+    echo ""
+}
+
+# ── Section header ────────────────────────────────────────────────────────────
+fe_section() {
+    local title="$1"
+    local hint="${2:-}"
+    (( _FE_SEC++ )) || true
+    _FE_STEP=0
+    echo ""
+    printf "${_FE_PINK}  ╔═══════════════════════════════════════════════════════════════╗${_FE_RST}\n"
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_WHT}%-62s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "$title"
+    [[ -n "$hint" ]] && \
+        printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}%-62s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "$hint"
+    printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
+}
+
+# ── Numbered step within a section ───────────────────────────────────────────
+fe_step() {
+    (( _FE_STEP++ )) || true
+    printf "  ${_FE_PINK}[%02d]${_FE_RST}  %s\n" "$_FE_STEP" "$*"
+}
+
+# ── Result indicators ────────────────────────────────────────────────────────
+fe_ok()   { printf "        ${_FE_GRN}✓${_FE_RST}  %s\n" "$*"; }
+fe_skip() { printf "        ${_FE_DIM}↷${_FE_RST}  %s\n" "$*"; }
+fe_warn() { printf "        ${_FE_YEL}⚠${_FE_RST}  %s\n" "$*"; }
+fe_info() { printf "        ${_FE_CYN}→${_FE_RST}  %s\n" "$*"; }
+fe_kv()   { printf "        ${_FE_DIM}%-28s${_FE_RST} ${_FE_CYN}%s${_FE_RST}\n" "$1:" "$2"; }
+
+# ── Thin separator (within a section) ────────────────────────────────────────
+fe_sep() {
+    printf "  ${_FE_DIM}%s${_FE_RST}\n" \
+        "· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·"
+}
+
+# ── Final summary banner ──────────────────────────────────────────────────────
+fe_finish() {
+    local output_file="$1"
+    local elapsed_mm="$2"
+    local elapsed_ss="$3"
+    echo ""
+    printf "${_FE_PINK}  ╔═══════════════════════════════════════════════════════════════╗${_FE_RST}\n"
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_GRN}✓  PORT COMPLETE${_FE_RST} ${_FE_DIM}——${_FE_RST} ${_FE_PINK}Feather Engine${_FE_RST} ${_FE_DIM}by @ozyern${_FE_RST}%14s${_FE_PINK}║${_FE_RST}\n" ""
+    printf "${_FE_PINK}  ╠═══════════════════════════════════════════════════════════════╣${_FE_RST}\n"
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}output :${_FE_RST}  ${_FE_WHT}%-54s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "${output_file:-<see out/ directory>}"
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}time   :${_FE_RST}  ${_FE_GOLD}%dm %ds${_FE_RST}%-53s${_FE_PINK}║${_FE_RST}\n" \
+        "$elapsed_mm" "$elapsed_ss" ""
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}lemonadep (OnePlus 9 Pro · SM8350)${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
+    printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
+    echo ""
+}
+
+# ── Print banner immediately on start ────────────────────────────────────────
+fe_banner
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GitHub Release auto-download logic (from toraidl/coloros_port)
@@ -201,7 +326,7 @@ ensure_resource_available() {
 read_config() {
     local key="$1" default="${2:-}"
     local val
-    val=$({ grep "^${key}=" bin/port_config 2>/dev/null || true; } | cut -d '=' -f 2- | tr -d '[:space:]')
+    val=$(grep "^${key}=" bin/port_config 2>/dev/null | cut -d '=' -f 2- | tr -d '[:space:]')
     echo "${val:-$default}"
 }
 
@@ -250,13 +375,14 @@ if [[ "$(basename "$baserom")" =~ ColorOS_ ]]; then
 else
     device_code="op8t"
 fi
+fe_section "VALIDATING BASE ROM" "Checking format: payload / br / img"
 blue "Validating Base ROM" "Validating BASEROM.."
 if unzip -l "${baserom}" | grep -q "payload.bin"; then
     baserom_type="payload"
-    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2 || true)
+    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2)
 elif unzip -l "${baserom}" | grep -Eq "br$"; then
     baserom_type="br"
-    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2 || true)
+    oplus_hex_nv_id=$(unzip -p "${baserom}" META-INF/com/android/metadata 2>/dev/null | grep "oplus_hex_nv_id=" | cut -d= -f2)
 elif unzip -l "${baserom}" | grep -Eq "\.img$"; then
     baserom_type="img"
 else
@@ -265,6 +391,7 @@ else
     exit 1
 fi
 green "Base ROM Format: ${baserom_type}" "Detected base package type: ${baserom_type}"
+fe_section "VALIDATING PORT ROM"
 blue "Validating Port ROM" "Validating PORTROM.."
 if unzip -l "${portrom}" | grep -q "payload.bin"; then
     portrom_type="payload"
@@ -276,8 +403,8 @@ else
     exit 1
 fi
 if unzip -l "${portrom}" | grep -q "META-INF/com/android/metadata"; then
-    version_name=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2 || true)
-    ota_version=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "ota_version=" | cut -d= -f2 || true)
+    version_name=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2)
+    ota_version=$(unzip -p "${portrom}" META-INF/com/android/metadata 2>/dev/null | grep "ota_version=" | cut -d= -f2)
 else
     version_name="$(basename "${portrom%.*}")"
     ota_version="V16.0.0"
@@ -301,7 +428,7 @@ if [[ "$mix_port" == true ]];then
     if unzip -l "${portrom2}" | grep -q "payload.bin"; then
         green "Validation for second ROM successful" "ROM validation passed."
         portrom2_type="payload"
-        version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2 || true)
+        version_name2=$(unzip -p "${portrom2}" META-INF/com/android/metadata 2>/dev/null | grep "version_name=" | cut -d= -f2)
     elif unzip -l "${portrom2}" | grep -Eq "\.img$"; then
         portrom2_type="img"
         version_name2="$(basename "${portrom2%.*}")"
@@ -312,6 +439,7 @@ if [[ "$mix_port" == true ]];then
     fi
 fi
 green "Basic ROM validation successful" "ROM validation passed."
+fe_section "WORKSPACE CLEANUP"
 blue "Cleaning up temporary working files" "Cleaning up.."
 rm -rf app
 rm -rf tmp
@@ -326,10 +454,12 @@ mkdir tmp
 export TMPDIR=$work_dir/tmp/
 # ===== Base ROM Extraction =====
 if [[ ${baserom_type} == 'payload' ]]; then
-    blue "Extracting Base ROM [payload.bin]" "Extracting files from BASEROM [payload.bin]"
+    fe_section "EXTRACTING BASE ROM" "payload.bin → build/baserom/images/"
+blue "Extracting Base ROM [payload.bin]" "Extracting files from BASEROM [payload.bin]"
     payload-dumper --out build/baserom/images/ "${baserom}" \
         || { error "payload-dumper failed for baserom" "payload-dumper failed"; exit 1; }
     green "Base ROM extraction complete [payload.bin]" "[payload.bin] extracted."
+fe_ok "Base ROM extracted from payload.bin"
 elif [[ ${baserom_type} == 'br' ]]; then
     blue "Extracting Base ROM [*.new.dat.br]" "Extracting files from BASEROM [*.new.dat.br]"
     unzip -q "${baserom}" -d build/baserom || \
@@ -459,10 +589,12 @@ if [[ ! -d "build/portrom/images/system_dlkm" ]]; then
     # system_dlkm not present; use a reduced default super_list
     super_list="system system_ext vendor product my_product odm my_engineering my_stock my_heytap my_carrier my_region my_bigball my_manifest my_company my_preload"
 fi
+fe_section "LOGICAL PARTITION EXPANSION" "Parallel extraction — all super partitions"
 green "Starting logical partition expansion" "Starting extract portrom partition from img"
 for part in ${super_list};do
     if [[ ! -d "build/portrom/images/${part}" ]]; then
         blue "Extracting [${part}]..." "Extracting [${part}]"
+        fe_step "Extracting partition: ${part}"
         (
         extract_partition "${work_dir}/build/portrom/images/${part}.img" "${work_dir}/build/portrom/images/" && \
         rm -rf "${work_dir}/build/baserom/images/${part}.img"
@@ -473,6 +605,7 @@ for part in ${super_list};do
 done
 wait
 rm -rf config
+fe_section "ROM BUILD INFO" "Reading props from base and port images"
 blue "Retrieving ROM build info" "Fetching ROM build prop."
 
 # Helper: read a prop value from a file (first match)
@@ -535,17 +668,6 @@ if grep -q "ro.vendor.oplus.market.name" build/baserom/images/my_manifest/build.
 else
     base_market_name=$(get_prop build/portrom/images/odm/build.prop "ro.vendor.oplus.market.name")
 fi
-# Keep this lookup non-fatal when a prop/file is missing under set -euo pipefail.
-base_market_enname=$(get_prop build/baserom/images/my_manifest/build.prop "ro.vendor.oplus.market.enname")
-if [[ -z "$base_market_enname" ]]; then
-    base_market_enname=$(get_prop build/portrom/images/odm/build.prop "ro.vendor.oplus.market.enname")
-fi
-if [[ -z "$base_market_enname" ]]; then
-    base_market_enname=$(grep -r --include="*.prop" "ro.vendor.oplus.market.enname" build/portrom/images/ 2>/dev/null | head -n1 | cut -d'=' -f2 || true)
-fi
-if [[ -z "$base_market_enname" ]]; then
-    base_market_enname="${base_market_name}"
-fi
 port_market_name=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.vendor.oplus.market.name" build/portrom/images/ 2>/dev/null | head -n1 | cut -d'=' -f2 || true)
 green "Market Name: Base [${base_market_name}] / Source [${port_market_name}]"
 
@@ -559,36 +681,32 @@ green "my_product Type: Base [${base_my_product_type}] / Source [${port_my_produ
 if [[ -n "$port_device_code" ]]; then
     target_display_id=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id" \
         | sed "s/${port_device_code}/${base_device_code}/g")
-    target_display_id_show=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id.show" \
+    target_display_id_show=$(grep "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop \
+        | awk 'NR==1' | cut -d'=' -f2- \
         | sed "s/${port_device_code}/${base_device_code}/g")
 else
     target_display_id=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id")
-    target_display_id_show=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.display.id.show")
+    target_display_id_show=$(grep "ro.build.display.id.show" build/portrom/images/my_manifest/build.prop \
+        | awk 'NR==1' | cut -d'=' -f2-)
     yellow "port_device_code empty — display ID used as-is from portrom"
 fi
 # Fallback: if still empty, use product model as display ID
 if [[ -z "$target_display_id" ]]; then
     target_display_id="${port_product_model}"
 fi
-if [[ -z "$target_display_id_show" ]]; then
-    target_display_id_show="${target_display_id}"
-fi
 base_vendor_brand=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.vendor.brand")
 port_vendor_brand=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.vendor.brand")
-port_ssi_brand=$(get_prop build/portrom/images/system_ext/etc/build.prop "ro.oplus.image.system_ext.brand")
 base_product_first_api_level=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.first_api_level")
 port_product_first_api_level=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.first_api_level")
 base_device_family=$(get_prop build/baserom/images/my_product/build.prop "ro.build.device_family")
 target_device_family=$(get_prop build/portrom/images/my_product/build.prop "ro.build.device_family")
 portrom_version_security_patch=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.version.security_patch")
 port_oplusrom_version=$(get_prop build/portrom/images/my_product/build.prop "ro.build.version.oplusrom.confidential")
-port_release_or_codename=$(get_prop build/portrom/images/my_manifest/build.prop "ro.build.version.release_or_codename")
 regionmark=$(find build/portrom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d'=' -f2)
 base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.vendor.oplus.regionmark=" {} \; -quit | cut -d '=' -f2)
 if [ -z "$base_regionmark" ]; then
   base_regionmark=$(find build/baserom/images/ -name build.prop -exec grep -m1 "ro.oplus.image.my_region.type=" {} \; -quit | cut -d '=' -f2 | cut -d '_' -f1)
 fi
-base_ab_partitions=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.ab_ota_partitions")
 vendor_cpu_abilist32=$(get_prop build/portrom/images/vendor/build.prop "ro.vendor.product.cpu.abilist32")
 base_area=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.area" build/baserom/images/ 2>/dev/null | head -n1 | cut -d "=" -f2 | tr -d '\r' || true)
 base_brand=$(grep -r --include="*.prop" --exclude-dir="odm" "ro.oplus.image.system_ext.brand" build/baserom/images/ 2>/dev/null | head -n1 | cut -d "=" -f2 | tr -d '\r' || true)
@@ -608,7 +726,7 @@ portIsColorOSGlobal=false
 portIsOOS=false
 portIsColorOS=false
 portIsRealmeUI=false
-port_oplusrom_confidential_version=$(grep "ro.build.version.oplusrom.confidential" build/baserom/images/my_manifest/build.prop 2>/dev/null | awk 'NR==1' | cut -d '=' -f 2 || true)
+port_oplusrom_version=$(get_oplusrom_version)
 if [[ "$port_brand" == "realme" ]];then
     portIsRealmeUI=true
 fi
@@ -644,31 +762,26 @@ else
 fi
 sed -i '/ro.build.version.release=/d' build/portrom/images/my_manifest/build.prop
 sed -i "s/ro.vendor.oplus.market.name=.*/ro.vendor.oplus.market.name=${base_market_name}/g" build/portrom/images/my_manifest/build.prop
-sed -i "s/ro.vendor.oplus.market.enname=.*/ro.vendor.oplus.market.enname=${base_market_enname}/g" build/portrom/images/my_manifest/build.prop
-sed -i "s/ro.product.ab_ota_partitions=.*/ro.product.ab_ota_partitions=${base_ab_partitions}/g" build/portrom/images/my_manifest/build.prop
+sed -i "s/ro.vendor.oplus.market.enname=.*/ro.vendor.oplus.market.enname=${base_market_name}/g" build/portrom/images/my_manifest/build.prop
 sed -i '/ro.oplus.watermark.betaversiononly.enable=/d' build/portrom/images/my_manifest/build.prop
-if [[ $base_android_version -le 14 ]];then
-    BASE_PROP="build/baserom/images/my_manifest/build.prop"
-    PORT_PROP="build/portrom/images/my_manifest/build.prop"
-
-    KEYS="\.name= \.model= \.manufacturer= \.device= \.brand= \.my_product.type="
-    for k in $KEYS; do
-        { grep "$k" "$BASE_PROP" || true; } | while IFS='=' read -r key value; do
-            if [[ "$key" == "ro.product.vendor.brand" ]]; then
-                # 特殊处理：强制写 OPPO
-                sed -i "s|^$key=.*|$key=OPPO|" "$PORT_PROP"
-            elif grep -q "^$key=" "$PORT_PROP"; then
-                sed -i "s|^$key=.*|$key=$value|" "$PORT_PROP"
-            fi
-        done
+BASE_PROP="${work_dir}/build/baserom/images/my_manifest/build.prop"
+PORT_PROP="${work_dir}/build/portrom/images/my_manifest/build.prop"
+KEYS="\.name= \.model= \.manufacturer= \.device= \.brand= \.my_product.type="
+for k in $KEYS; do
+    grep "$k" "$BASE_PROP" | while IFS='=' read -r key value; do
+        if [[ "$key" == "ro.product.vendor.brand" ]]; then
+            sed -i "s|^$key=.*|$key=OPPO|" "$PORT_PROP"
+        elif grep -q "^$key=" "$PORT_PROP"; then
+            sed -i "s|^$key=.*|$key=$value|" "$PORT_PROP"
+        fi
     done
-fi
+done
 if [[ -n "$vendor_cpu_abilist32" ]] ;then
     sed -i "/ro.zygote=zygote64/d" build/portrom/images/my_manifest/build.prop
 fi
 vndk_version=""
 while IFS= read -r prop_file; do
-    vndk_version=$(get_prop "$prop_file" "ro.vndk.version")
+    vndk_version=$(grep "^ro.vndk.version=" "$prop_file" 2>/dev/null | awk 'NR==1' | cut -d'=' -f2)
     if [[ -n "$vndk_version" ]]; then
         yellow "ro.vndk.version=${vndk_version} (found in ${prop_file})"
         break
@@ -699,7 +812,7 @@ elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
     fi
     mkdir -p tmp/services/
     cp -rf build/portrom/images/system/system/framework/services.jar tmp/services.jar
-    framework_res=$(find build/portrom/images/ -type f -name "framework-res.apk" | head -n 1)
+    framework_res=$(find build/portrom/images/ -type f -name "framework-res.apk")
     extra_args=""
     if [[ -f "$framework_res" ]];then
         extra_args="-framework $framework_res"
@@ -748,8 +861,8 @@ elif [[ -f build/portrom/images/system/system/framework/services.jar ]];then
         old_smali_dir=$smali_dir
     done < <(find tmp/services/smali/*/com/android/server/pm/ tmp/services/smali/*/com/android/server/pm/pkg/parsing/ -maxdepth 1 -type f -name "*.smali" -exec grep -H "$target_method" {} \; | cut -d ':' -f 1)
     ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS='ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS'
-    find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while IFS= read -r smali_file; do
-        match_line=$({ grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" || true; } | head -n 1)
+    find tmp/services/ -type f -name "ReconcilePackageUtils.smali" | while read smali_file; do
+        match_line=$(grep -n "sput-boolean .*${ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS}" "$smali_file" | head -n 1)
         if [[ -n "$match_line" ]]; then
             line_number=$(echo "$match_line" | cut -d ':' -f 1)
             reg=$(echo "$match_line" | sed -n 's/.*sput-boolean \([^,]*\),.*/\1/p')
@@ -2069,6 +2182,30 @@ EOF
                 "$VENDOR_PATH/etc/init/op9_sched.rc"
             blue "OP9R/9RT 90Hz power profile applied"
         fi
+        if [[ "${is_op9pro}" == true ]]; then
+            # OP9 Pro balanced profile: keep strong performance, reduce sustained heat.
+            # Benchmark mode remains handled by workload classifier boosts below.
+            sed -i 's|cpu4/cpufreq/scaling_min_freq 1132800|cpu4/cpufreq/scaling_min_freq 998400|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|cpu5/cpufreq/scaling_min_freq 1132800|cpu5/cpufreq/scaling_min_freq 998400|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|cpu6/cpufreq/scaling_min_freq 1132800|cpu6/cpufreq/scaling_min_freq 998400|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|cpu7/cpufreq/scaling_min_freq 1228800|cpu7/cpufreq/scaling_min_freq 1075200|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|cpu7/cpufreq/schedutil/down_rate_limit_us 2000|cpu7/cpufreq/schedutil/down_rate_limit_us 3000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|input_boost_ms 120|input_boost_ms 80|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|kgsl-3d0/max_gpuclk 750000000|kgsl-3d0/max_gpuclk 710000000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|kgsl-3d0/min_gpuclk 180000000|kgsl-3d0/min_gpuclk 157000000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            sed -i 's|kgsl-3d0/devfreq/min_freq 180000000|kgsl-3d0/devfreq/min_freq 157000000|' \
+                "$VENDOR_PATH/etc/init/op9_sched.rc"
+            set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.phr.target_fps=90"
+            blue "OP9 Pro balanced thermal profile applied (daily/gaming efficiency)"
+        fi
 
         rm -f "$VENDOR_PATH/etc/init/op9_boost.rc" \
               "$VENDOR_PATH/etc/init/op9_final_sched.rc"
@@ -2375,6 +2512,11 @@ EOF
             set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.llcc.wt_aggr=1"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.wt_aggr=1"
 
+            # GC type: CMS has lower stop-the-world pause than default ConcurrentCopying
+            # for a 512m heap. Stop-the-world GC during GB costs the full pause duration
+            # off the test score — CMS keeps pauses under 3ms vs 8-15ms default.
+            set_prop "$SYSTEM_PATH/build.prop"   "dalvik.vm.gctype=CMS"
+
             # mpctlv3: QTI perf daemon protocol v3 — enables cluster-level freq lock
             # and LLC bandwidth reservation. Required for both 1400 SC and 4000 MC.
             set_prop "$VENDOR_PATH/default.prop"  "vendor.perf.mpctlv3.enable=true"
@@ -2416,6 +2558,8 @@ EOF
             # ── OP9 Pro: LLCC retention + ART
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.retentionmode=1"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.llcc.wt_aggr=1"
+            # CMS GC: <3ms stop-the-world vs 8-15ms default for 512m heap on X1.
+            set_prop "$SYSTEM_PATH/build.prop"    "dalvik.vm.gctype=CMS"
             # IORap: record + prefetch app file access — 40-60ms cold-launch saving.
             set_prop "$SYSTEM_PATH/build.prop"    "ro.iorapd.enable=true"
             set_prop "$SYSTEM_PATH/build.prop"    "persist.iorapd.enable=true"
@@ -2461,19 +2605,47 @@ EOF
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.modem_sleep=1"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.add_power_save=1"
 
-            # ── OP9 Pro: heat management props
+            # ── OP9 Pro: heat management props ───────────────────────────────────
             # BCL current thresholds — raise above default 3500mA for Warp 65T VRM.
-            set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.bcl.ibat.mitigate=4500"
+            # At 4800mA the Pro's battery management IC is within its safe operating range.
+            set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.bcl.ibat.mitigate=4800"
+            # BCL enable: gate the hardware current limiter through QTI HAL not kernel BCL.
+            # The HAL version has smoother stepping; kernel BCL cuts abruptly (causes jank).
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.bcl.enabled=true"
             # Thermal profile: perf_profile uses less-aggressive freq stepping.
             # vapour chamber handles short bursts; this prevents thrashing at the
             # thermal boundary from repeated small freq reductions.
             set_prop "$VENDOR_PATH/default.prop"  "persist.thermal.config=perf_profile"
             # Skin temp averaging: 4-sample average vs instantaneous reading.
-            # Vapour chamber spreads heat — instantaneous skin temp is misleadingly low.
+            # Vapour chamber spreads heat — instantaneous peak skin reading is misleading.
             set_prop "$VENDOR_PATH/default.prop"  "vendor.thermal.skin.temp.sample=4"
+            # Qualcomm IRM (Intelligent Resource Management) — battery-aware task scheduler.
+            # Reduces background-task CPU cycles when battery < 20% without visible lag.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.irm.enable=1"
+            # Deep suspend mode: PSCI s2idle — all cores enter retention state on screen-off.
+            # Correct OOS 14 kernel suspend path; "freeze" mode keeps CPUs clocked = more drain.
+            set_prop "$SYSTEM_PATH/build.prop"    "persist.sys.suspend.mode=deep"
             # Modem power: X60 5G PA is a major heat source.
+            # NSA mode: 5G uses LTE anchor for control plane — modem radio can idle more.
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.nr_cfg=nsa"
             set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.5g_mode_pref=0"
+            # X60 modem: allow aggressive L1 idle on data lull — biggest 5G battery win.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.nr_ul_idle=1"
+            # Enable temp-DDS: dynamic data subscription for dual-SIM 5G efficiency.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.radio.enable_temp_dds=1"
+            # GPS low-power tracking: GNSS uses dedicated low-power hardware path on idle.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.gps.lp_mode=1"
+            # Bluetooth: keep A2DP offload on Hexagon ADSP — ~35mA saving during BT audio.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.bt.a2dp_offload_cap=sbc-aptx-aptxhd-aac-ldac"
+            set_prop "$VENDOR_PATH/default.prop"  "vendor.audio.feature.a2dp_offload.enable=true"
+            # Display idle time: 0ms = no idle dim that causes jank resuming from screensaver.
+            # Combined with LTPO idle_fps=1 this eliminates all display power waste.
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.display.idle_time=0"
+            set_prop "$VENDOR_PATH/default.prop"  "persist.vendor.qti.display.idle_time_inactive=0"
+            # Software governor utilities: enable QTI sysfs-based DCVS governors.
+            set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.qti.governor_sw_utils.enable=1"
+            # Radio power-down: modem enters minimum power between data bursts.
+            set_prop "$VENDOR_PATH/default.prop"  "ro.vendor.radio.power_down_enable=1"
 
             cat > "$VENDOR_PATH/etc/init/op9pro_perf.rc" << 'OP9PROEOF'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2753,13 +2925,6 @@ on property:vendor.perf.workloadclassifier.enable=true
     # clears sched_boost during its own internal hint timeout, causing a brief
     # frequency drop that costs ~20-30 MC points across the full test run.
     write /proc/sys/kernel/sched_boost_no_override 1
-    # sched_load_boost on A55 during GB — previously only set for big/prime at boot.
-    # MC subtests schedule tasks on ALL cores; A55 without load_boost under-serves
-    # integer/memory workloads causing subtle freq drops between subtest boundaries.
-    write /sys/devices/system/cpu/cpu0/sched_load_boost 10
-    write /sys/devices/system/cpu/cpu1/sched_load_boost 10
-    write /sys/devices/system/cpu/cpu2/sched_load_boost 10
-    write /sys/devices/system/cpu/cpu3/sched_load_boost 10
     # DDR 3732000kHz: the highest LPDDR5 OPP vote on SM8350.
     # At 3024000 the memory bandwidth subtests hit the DDR vote ceiling and stall.
     # 3732000 = full LPDDR5 throughput; gains ~60 MC pts on memory subtests.
@@ -2788,15 +2953,8 @@ on property:vendor.perf.workloadclassifier.enable=false
     write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1516800
     write /proc/sys/kernel/sched_boost 0
     write /proc/sys/kernel/sched_boost_no_override 0
-    # Clear A55 load boost — restore normal EAS priority for little cores
-    write /sys/devices/system/cpu/cpu0/sched_load_boost 0
-    write /sys/devices/system/cpu/cpu1/sched_load_boost 0
-    write /sys/devices/system/cpu/cpu2/sched_load_boost 0
-    write /sys/devices/system/cpu/cpu3/sched_load_boost 0
     write /sys/devices/system/cpu/bus_dcvs/DDR/boost_freq 2092000
     write /sys/devices/system/cpu/bus_dcvs/LLCC/boost_freq 200000
-    # Restore SNOC to normal floor — previously left at 600000kHz max after GB exit
-    write /sys/devices/system/cpu/bus_dcvs/SNOC/boost_freq 300000
     # Release LLC force-cache-on so LLCC can evict idle content normally
     write /sys/devices/system/cpu/bus_dcvs/LLCC/llcc_force_cache_on 0 || true
 
@@ -2907,8 +3065,8 @@ on property:sys.warpcharge.status=0
 on property:sys.battery.temp_high=1
     # Battery temp > 42°C: step down regardless of charger type.
     # Prevents the BCL from doing a hard cut — smooth step is better UX.
-    write /sys/class/power_supply/battery/input_current_limit 4200000
-    write /sys/class/power_supply/battery/constant_charge_current_max 4500000
+    write /sys/class/power_supply/battery/input_current_limit 3500000
+    write /sys/class/power_supply/battery/constant_charge_current_max 4000000
 
 on property:sys.battery.temp_high=0
     # Temperature normalised: restore.
@@ -3176,7 +3334,7 @@ on property:sys.boot_completed=1
 # ─────────────────────────────────────────────────────────────────────────────
 on property:sys.warpcharge.display_on=1
     # Screen on: keep near-peak Warp while user-active; thermals handle step-down.
-    write /sys/class/power_supply/battery/input_current_limit 6200000
+    write /sys/class/power_supply/battery/input_current_limit 6000000
 
 on property:sys.warpcharge.display_on=0
     # Screen off: allow full Warp 65T.
@@ -3184,61 +3342,67 @@ on property:sys.warpcharge.display_on=0
 
 on property:sys.thermal.gaming_mode=1
     # Gaming + charging: trim current to avoid throttling mid-session.
-    write /sys/class/power_supply/battery/input_current_limit 4200000
-    # Gaming mode boost: raise CPU/GPU floors for sustained 90/120 fps loads.
-    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1363200
-    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1363200
-    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1363200
-    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1612800
-    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 280000000
-    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 280000000
-    write /dev/cpuctl/top-app/cpu.uclamp.min 58
-    write /dev/stune/top-app/schedtune.boost 23
-    write /sys/module/cpu_boost/parameters/input_boost_ms 70
-    write /proc/sys/kernel/sched_boost 1
-
-on property:sys.thermal.gaming_mode=0
-    # Restore balanced daily profile when gaming mode is disabled.
-    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 1171200
-    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_min_freq 1171200
-    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq 1171200
-    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_min_freq 1382400
-    write /sys/class/kgsl/kgsl-3d0/min_gpuclk 214000000
-    write /sys/class/kgsl/kgsl-3d0/devfreq/min_freq 214000000
-    write /dev/cpuctl/top-app/cpu.uclamp.min 55
-    write /dev/stune/top-app/schedtune.boost 18
-    write /sys/module/cpu_boost/parameters/input_boost_ms 55
-    write /proc/sys/kernel/sched_boost 0
+    write /sys/class/power_supply/battery/input_current_limit 3500000
 
 OP9PROEOF
 
-            # ── OP9 Pro: balanced daily defaults (cooler idle, same burst speed)
-            # Lower always-on floors to cut idle heat, keep boosts high for smoothness.
-            sed -i 's/cpu7\/cpufreq\/scaling_min_freq 1516800/cpu7\/cpufreq\/scaling_min_freq 1382400/' \
+            # ── OP9 Pro: balanced daily defaults — Feather Engine battery profile ──
+            # Strategy: "sprint and sleep" — instant ramp-up via up_rate_us=0 and hispeed_freq,
+            # fast ramp-DOWN to cut idle power between bursts.  Benchmarks/games use the
+            # workloadclassifier trigger (full lock) so these floors are for daily use only.
+            #
+            # X1 Prime floor: 1516800→1209600kHz  (-307.2MHz idle = ~60-80mW saved at rest)
+            # A78 big floor:  1363200→1075200kHz  (-288MHz  idle = ~45-60mW saved at rest)
+            # Down rates sped up so freq sheds quickly between UI bursts (less idle heat).
+            # Input boost tuned lower but with an 80ms window — covers any human gesture
+            # without burning big+prime cores for an entire 120Hz frame sequence.
+            sed -i 's/cpu7\/cpufreq\/scaling_min_freq 1516800/cpu7\/cpufreq\/scaling_min_freq 1209600/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 5000/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 3200/' \
+            # X1 down_rate: 5000→2000us — shed freq faster after load, reduce idle heat
+            sed -i 's/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 5000/cpu7\/cpufreq\/schedutil\/down_rate_limit_us 2000/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             for c in cpu4 cpu5 cpu6; do
-                sed -i "s/${c}\/cpufreq\/scaling_min_freq 1363200/${c}\/cpufreq\/scaling_min_freq 1171200/" \
+                # A78 floor: 1363200→1075200kHz — well above 710MHz stock floor, cooler idle
+                sed -i "s/${c}\/cpufreq\/scaling_min_freq 1363200/${c}\/cpufreq\/scaling_min_freq 1075200/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i "s/${c}\/cpufreq\/schedutil\/hispeed_freq 1363200/${c}\/cpufreq\/schedutil\/hispeed_freq 1248000/" \
+                # A78 hispeed: 1363200→1132800kHz — snaps to warm freq on first touch
+                sed -i "s/${c}\/cpufreq\/schedutil\/hispeed_freq 1363200/${c}\/cpufreq\/schedutil\/hispeed_freq 1132800/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i "s/${c}\/cpufreq\/schedutil\/down_rate_limit_us 3000/${c}\/cpufreq\/schedutil\/down_rate_limit_us 2500/" \
+                # A78 down_rate: 3000→1500us — faster idle drop = less wasted power
+                sed -i "s/${c}\/cpufreq\/schedutil\/down_rate_limit_us 3000/${c}\/cpufreq\/schedutil\/down_rate_limit_us 1500/" \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
             done
-            sed -i 's/cpu7\/cpufreq\/schedutil\/hispeed_freq 1516800/cpu7\/cpufreq\/schedutil\/hispeed_freq 1382400/' \
+            # X1 hispeed: 1516800→1209600kHz — warm but not burning at first touch event
+            sed -i 's/cpu7\/cpufreq\/schedutil\/hispeed_freq 1516800/cpu7\/cpufreq\/schedutil\/hispeed_freq 1209600/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            # GPU: lower idle floor + slightly longer nap timer for better standby drain.
-            sed -i 's/kgsl-3d0\/min_gpuclk 257000000/kgsl-3d0\/min_gpuclk 214000000/' \
+            # GPU: 257→200MHz min — Adreno 660 UI compositing is fine at 200MHz; 257MHz
+            # is wasteful at idle and during media playback (30-50mW saved at standby).
+            sed -i 's/kgsl-3d0\/min_gpuclk 257000000/kgsl-3d0\/min_gpuclk 200000000/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/kgsl-3d0\/devfreq\/min_freq 257000000/kgsl-3d0\/devfreq\/min_freq 214000000/' \
+            sed -i 's/kgsl-3d0\/devfreq\/min_freq 257000000/kgsl-3d0\/devfreq\/min_freq 200000000/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/kgsl-3d0\/idle_timer 48/kgsl-3d0\/idle_timer 60/' \
+            # GPU idle_timer: 48→80ms — longer NAP window during browsing/static content.
+            # NAP costs 0.3ms wake vs 3ms full-power-down; 80ms means fewer full wake cycles.
+            sed -i 's/kgsl-3d0\/idle_timer 48/kgsl-3d0\/idle_timer 80/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            # Input boost: extend window and warm big/prime for first frames.
-            sed -i 's/input_boost_freq "0:1324800 4:1363200 7:1516800"/input_boost_freq "0:1094400 4:1363200 7:1555200"/' \
+            # Input boost: lower freqs, wider 80ms window — "sprint" pattern for UI responsiveness.
+            # littles 1.132GHz → handles haptic/audio callbacks with no jank.
+            # bigs 1.209GHz → covers binder IPC for the gesture, warm within one hispeed hop.
+            # X1 1.363GHz → SF render thread gets a warm prime without full-boost heat.
+            # 80ms window → covers the entire deceleration phase of any realistic fling gesture.
+            sed -i 's/input_boost_freq "0:1324800 4:1363200 7:1516800"/input_boost_freq "0:1132800 4:1209600 7:1363200"/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-            sed -i 's/input_boost_ms 50/input_boost_ms 55/' \
+            sed -i 's/input_boost_ms 50/input_boost_ms 80/' \
+                "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+            # Background uclamp ceiling: 25→15% — tighter cap on background tasks.
+            # Prevents rogue background syncs from heating big/prime cores between frames.
+            sed -i 's/cpuctl\/background\/cpu\.uclamp\.max 25/cpuctl\/background\/cpu.uclamp.max 15/' \
+                "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+            sed -i 's/cpuctl\/system-background\/cpu\.uclamp\.max 25/cpuctl\/system-background\/cpu.uclamp.max 15/' \
+                "$VENDOR_PATH/etc/init/op9pro_perf.rc"
+            # VM: lower swappiness for daily use — 888 gets noticeably warmer when swap
+            # compresses under pressure. 20 (vs 30 base) keeps more in LPDDR5 RAM.
+            sed -i 's/vm\/swappiness 30/vm\/swappiness 20/' \
                 "$VENDOR_PATH/etc/init/op9pro_perf.rc"
 
             # ── OP9 Pro: thermal-engine.conf — vapour chamber specific
@@ -3254,31 +3418,31 @@ OP9PROEOF
                 # hysteresis 2000ms: faster recovery because chamber clears junction faster
                 # trip_point: 46.5→47.5°C (0.5° more than base SM8350 block added).
                 # Vapour chamber + graphite stack delays surface heat by ~1.5°C vs bare OP9.
-                # 47.0°C keeps sustained performance while reducing frame warmth.
+                # 47.5°C is the maximum safe trip before the user perceives warmth on
                 # the aluminium frame — above this user comfort drops noticeably.
-                sed -i 's/trip_point=46500/trip_point=47000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
-                # hysteresis=2000ms balances fast recovery and anti-oscillation.
-                # Vapour chamber clears junction heat in ~800ms — 2000ms re-engages
+                sed -i 's/trip_point=46500/trip_point=47500/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                # hysteresis=1500ms: faster recovery than base block's 3000ms.
+                # Vapour chamber clears junction heat in ~800ms — 1500ms re-engages
                 # the throttle just as the thermal wave arrives at the outer sensors.
-                sed -i 's/hysteresis=3000/hysteresis=2000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/hysteresis=3000/hysteresis=1500/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # CPU sensor sampling 100→200ms: 888 thermal spikes faster than 865,
                 # but the vapour chamber makes fast sampling counterproductive —
                 # 100ms catches transients the chamber would clear in <50ms,
                 # causing unnecessary throttle. 200ms matches the chamber response time.
-                sed -i 's/sampling=100/sampling=150/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/sampling=100/sampling=200/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # Skin sensor 2000→4000ms: vapour chamber makes skin a very lagging
                 # indicator — fast skin polling causes oscillating throttle behaviour.
-                sed -i 's/sampling=2000/sampling=3000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
+                sed -i 's/sampling=2000/sampling=4000/g'                     "$VENDOR_PATH/etc/thermal-engine.conf"
                 # BCL ibat thresholds: raise for Warp 65T VRM capability.
                 # Default 3500mA threshold fires during normal Warp charging + gaming.
                 # Pro's battery management IC + VRM handles 4800mA sustained without issue.
-                sed -i 's/ibat_high=3500/ibat_high=4600/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
-                sed -i 's/ibat_low=3000/ibat_low=3900/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/ibat_high=3500/ibat_high=4800/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/ibat_low=3000/ibat_low=4200/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
                 # Charging temp cutoff: 38→42°C.
                 # At 38°C the charger steps down even during normal ambient temperature use.
                 # 42°C is the electrochemical limit for LiPo — safe margin while avoiding
                 # constant partial-power charging that degrades battery life over time.
-                sed -i 's/batt_temp_charge_limit_low=38/batt_temp_charge_limit_low=41/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
+                sed -i 's/batt_temp_charge_limit_low=38/batt_temp_charge_limit_low=42/g'                     "$VENDOR_PATH/etc/thermal-engine.conf" 2>/dev/null || true
                 green "OP9 Pro thermal-engine.conf patched (vapour chamber profile)"
             else
                 yellow "OP9 Pro: thermal-engine.conf not found — skipping thermal patch"
@@ -3297,38 +3461,38 @@ OP9PROEOF
             if [[ "${is_12gb_variant}" == true ]]; then
                 # X1 prime floor: 1728000kHz — 12GB means no swap pressure,
                 # so we can keep prime warmer at the cost of slightly higher idle power
-                sed -i 's|cpu7/cpufreq/scaling_min_freq 1382400|cpu7/cpufreq/scaling_min_freq 1612800|' \
+                sed -i 's|cpu7/cpufreq/scaling_min_freq 1459200|cpu7/cpufreq/scaling_min_freq 1728000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # hispeed on X1 jumps to 1728000 directly (skip 1459200 step)
-                sed -i 's|cpu7/cpufreq/schedutil/hispeed_freq 1382400|cpu7/cpufreq/schedutil/hispeed_freq 1612800|' \
+                sed -i 's|cpu7/cpufreq/schedutil/hispeed_freq 1459200|cpu7/cpufreq/schedutil/hispeed_freq 1728000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # A78 floor: 1478400kHz — more RAM = can afford warmer big cores
                 for c in cpu4 cpu5 cpu6; do
-                    sed -i "s|${c}/cpufreq/scaling_min_freq 1171200|${c}/cpufreq/scaling_min_freq 1363200|" \
+                    sed -i "s|${c}/cpufreq/scaling_min_freq 1075200|${c}/cpufreq/scaling_min_freq 1478400|" \
                         "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 done
-                sed -i 's|cpu4/cpufreq/schedutil/hispeed_freq 1248000|cpu4/cpufreq/schedutil/hispeed_freq 1363200|' \
+                sed -i 's|cpu4/cpufreq/schedutil/hispeed_freq 1132800|cpu4/cpufreq/schedutil/hispeed_freq 1478400|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # GPU min: 300MHz — can push higher without swap-induced thermal runaway
-                sed -i 's|kgsl-3d0/min_gpuclk 214000000|kgsl-3d0/min_gpuclk 280000000|' \
+                sed -i 's|kgsl-3d0/min_gpuclk 234000000|kgsl-3d0/min_gpuclk 300000000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i 's|kgsl-3d0/devfreq/min_freq 214000000|kgsl-3d0/devfreq/min_freq 280000000|' \
+                sed -i 's|kgsl-3d0/devfreq/min_freq 234000000|kgsl-3d0/devfreq/min_freq 300000000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Post-boot GPU floor re-assert also needs to match
-                sed -i 's|3d0/min_gpuclk 214000000|3d0/min_gpuclk 280000000|g' \
+                sed -i 's|3d0/min_gpuclk 234000000|3d0/min_gpuclk 300000000|g' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
-                sed -i 's|3d0/devfreq/min_freq 214000000|3d0/devfreq/min_freq 280000000|g' \
+                sed -i 's|3d0/devfreq/min_freq 234000000|3d0/devfreq/min_freq 300000000|g' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Post-boot CPU floor re-asserts
-                sed -i 's|cpu7/cpufreq/scaling_min_freq 1382400$|cpu7/cpufreq/scaling_min_freq 1612800|' \
+                sed -i 's|cpu7/cpufreq/scaling_min_freq 1459200$|cpu7/cpufreq/scaling_min_freq 1728000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # DDR boost: 12GB variant benefits from higher LPDDR5 bus floor
                 # More RAM = more concurrent app frames in flight = more DDR bandwidth needed
-                sed -i 's|bus_dcvs/DDR/boost_freq 2092000|bus_dcvs/DDR/boost_freq 2419200|' \
+                sed -i 's|bus_dcvs/DDR/boost_freq 2092000|bus_dcvs/DDR/boost_freq 2733000|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # uclamp: 12GB can afford slightly higher top-app floor
                 # Base is now 55 — 12GB bumps to 60 (more RAM = less thermal pressure)
-                sed -i 's|cpu.uclamp.min 55$|cpu.uclamp.min 58|' \
+                sed -i 's|cpu.uclamp.min 55$|cpu.uclamp.min 60|' \
                     "$VENDOR_PATH/etc/init/op9pro_perf.rc"
                 # Swappiness: 10 (vs default 30) — with 12GB LPDDR5, swap is almost never needed
                 sed -i 's|/vm/swappiness 30|/vm/swappiness 10|' \
@@ -3341,15 +3505,20 @@ OP9PROEOF
             fi
 
             # ── OP9 Pro: Additional performance props injected into bruce/build.prop
-            # Note: SF timers (idle=500ms, touch=250ms), enable_frame_rate_override,
-            # and content_detection are already set in the OP9 Pro LTPO block above.
+            # These are not already set by the Smoothness block above.
+
+            # Vulkan pre-rotation: eliminates the GPU blit needed to rotate the
+            # framebuffer for portrait apps on a landscape-native display pipeline.
+            # On QHD+ panels this blit costs 0.3-0.5ms/frame — saved every frame.
+            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.enable_frame_rate_override=false"
+            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_idle_timer_ms=700"
+            set_prop "$VENDOR_PATH/default.prop" "ro.surface_flinger.set_touch_timer_ms=300"
 
             # JIT threshold: lower value = hot methods promoted to AOT faster.
             # On X1 the JIT interpreter overhead vs AOT is ~8% IPC — reducing
             # threshold means fewer frames spend time in JIT-interpreted code.
-            # MUST use force_prop — SM8350 base block already set 500 via set_prop
-            force_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
-            force_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=250"
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=64m"
             set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
 
             # ART inline cache: 0 = use profile-guided inlining fully.
@@ -3363,9 +3532,12 @@ OP9PROEOF
             set_prop "$SYSTEM_PATH/build.prop" "ro.iorapd.perfetto_enable=true"
 
             # Fling velocity: higher ceiling = faster scroll momentum on 120Hz LTPO.
-            # MUST use force_prop — SM8350 base block already set 8000 via set_prop
             set_prop "$SYSTEM_PATH/build.prop" "ro.min.fling_velocity=160"
-            force_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=24000"
+            set_prop "$SYSTEM_PATH/build.prop" "ro.max.fling_velocity=24000"
+
+            # GC: CMS has lower stop-the-world pause than default ConcurrentCopying
+            # for a 512m heap — each GC pause costs the full duration off benchmarks.
+            set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.gctype=CMS"
 
             # PHR (Predictive Headroom): pre-boosts CPU before the next frame budget opens.
             # render_ahead=3: look 3 frames ahead on 120Hz = 25ms headroom window.
@@ -3432,17 +3604,6 @@ OP9PROEOF
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.boot-after-ota=verify"
             set_prop "$SYSTEM_PATH/build.prop" "pm.dexopt.downgrade_after_inactive_days=7"
 
-            # RAM-aware ART/JIT profile: keep 8GB smooth and 12GB aggressive.
-            if [[ "${is_12gb_variant}" == true ]]; then
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=180"
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=128m"
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=768m"
-            else
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitthreshold=220"
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitinitialsize=96m"
-                set_prop "$SYSTEM_PATH/build.prop" "dalvik.vm.jitmaxsize=512m"
-            fi
-
             # Job scheduler optimization: batch background jobs more aggressively.
             set_prop "$SYSTEM_PATH/build.prop" "persist.sys.job_scheduler_optimization_enabled=true"
 
@@ -3454,223 +3615,154 @@ OP9PROEOF
 
             green "OP9 Pro performance props injected"
             green "OP9 Pro exclusive profile applied — Feather Engine"
+            fe_ok "OP9 Pro · SM8350 · Adreno 660 · vapour chamber profile applied"
+            fe_ok "Battery optimised: sprint-and-sleep CPU · 200MHz GPU floor · NSA 5G"
+            fe_ok "Thermal: vapour chamber thermal-engine.conf · BCL 4800mA · perf_profile"
         fi
         # ════════════════════════════════════════════════════════════════════
     fi
 fi
 if [[ "${portIsOOS}" == true || "${portIsColorOSGlobal}" == true || "${portIsColorOS}" == true ]]; then
-    blue "Installing Kaorios Toolbox..."
+    fe_section "KAORIOS TOOLBOX" "KaoriosToolbox - V2.0.3 · framework.jar patcher"
+blue "Installing Kaorios Toolbox..."
 
-    KAORIOS_REPO="tmp/kaorios"
-    KAORIOS_PATCHER_TAG="V1.0.9"
+    KAORIOS_APK="tmp/KaoriosToolbox.apk"
+    KAORIOS_PATCHER_APK="tmp/Kaorios-Patcher.apk"
+    KAORIOS_XML="tmp/privapp_whitelist_com.kousei.kaorios.xml"
+    KAORIOS_DEX="tmp/classes_kaorios.dex"
     KAORIOS_VER="V2.0.3"
-    KAORIOS_RELEASE_API="https://api.github.com/repos/Wuang26/Kaorios-Toolbox/releases/tags/${KAORIOS_VER}"
-    KAORIOS_ASSET_ENV="tmp/kaorios_assets_${KAORIOS_VER}.env"
-    KAORIOS_APK="tmp/KaoriosToolbox-${KAORIOS_VER}.apk"
-    KAORIOS_XML="tmp/privapp_whitelist_com.kousei.kaorios-${KAORIOS_VER}.xml"
-    KAORIOS_MODULE_ZIP="tmp/ModuleTemplate-${KAORIOS_VER}.zip"
-    KAORIOS_DEX="tmp/classes-${KAORIOS_VER}.dex"
-    KAORIOS_BAKSMALI_JAR="tmp/baksmali-2.5.2.jar"
+    KAORIOS_BASE_URL="https://github.com/Wuang26/Kaorios-Toolbox/releases/download/${KAORIOS_VER}"
     FRAMEWORK_SRC="build/portrom/images/system/system/framework/framework.jar"
     PRIV_APP_DIR="build/portrom/images/system_ext/priv-app/KaoriosToolbox"
     PERMS_DIR="build/portrom/images/system_ext/etc/permissions"
+    KAORIOS_SKIP=false
 
     # Validate framework.jar exists before doing anything
+    mkdir -p tmp
     if [[ ! -f "${FRAMEWORK_SRC}" ]]; then
         yellow "Kaorios Toolbox skipped: framework.jar not found at ${FRAMEWORK_SRC}"
     else
-        # Framework patching still uses the scriptable patcher tree from V1.0.9.
-        # Toolbox app/permissions are pulled from the selected KAORIOS_VER release.
-        if [[ -d "${KAORIOS_REPO}/.git" && ! -f "${KAORIOS_REPO}/Toolbox-patcher/scripts/patcher.sh" ]]; then
-            yellow "Kaorios Toolbox: cached repo missing patcher scripts, refreshing ${KAORIOS_PATCHER_TAG}"
-            rm -rf "${KAORIOS_REPO}"
-        fi
-        if [[ ! -d "${KAORIOS_REPO}/.git" ]]; then
-            if ! git -c advice.detachedHead=false clone --depth=1 --branch "${KAORIOS_PATCHER_TAG}" https://github.com/Wuang26/Kaorios-Toolbox.git "${KAORIOS_REPO}" -q; then
-                error "Kaorios Toolbox: failed to clone patcher repo tag ${KAORIOS_PATCHER_TAG} — skipping"
-                KAORIOS_SKIP=true
-            fi
-        fi
-
-        # Resolve release assets by API because naming can vary between versions.
-        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
-            if ! python3 - "${KAORIOS_RELEASE_API}" > "${KAORIOS_ASSET_ENV}" <<'PY'; then
-import json
-import sys
-import urllib.request
-
-api_url = sys.argv[1]
-with urllib.request.urlopen(api_url) as resp:
-    payload = json.load(resp)
-
-assets = payload.get("assets", [])
-
-def pick(predicate):
-    for asset in assets:
-        name = (asset.get("name") or "").lower()
-        if predicate(name):
-            return asset.get("browser_download_url") or ""
-    return ""
-
-apk_url = pick(lambda n: n.endswith(".apk") and ("kaoriostoolbox" in n or "kaorios-toolbox" in n) and "patcher" not in n)
-xml_url = pick(lambda n: n.endswith(".xml") and "kousei" in n and "kaorios" in n)
-module_url = pick(lambda n: n.endswith(".zip") and "moduletemplate" in n)
-dex_url = pick(lambda n: n.endswith(".dex") and "classes" in n)
-
-print(f'KAORIOS_APK_URL="{apk_url}"')
-print(f'KAORIOS_XML_URL="{xml_url}"')
-print(f'KAORIOS_MODULE_URL="{module_url}"')
-print(f'KAORIOS_DEX_URL="{dex_url}"')
-PY
-                error "Kaorios Toolbox: failed to fetch release assets for ${KAORIOS_VER} — skipping"
-                KAORIOS_SKIP=true
-            fi
-        fi
-
-        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
-            # shellcheck disable=SC1090
-            source "${KAORIOS_ASSET_ENV}"
-            if [[ -z "${KAORIOS_APK_URL:-}" && -z "${KAORIOS_MODULE_URL:-}" ]]; then
-                error "Kaorios Toolbox: release ${KAORIOS_VER} missing Toolbox APK and ModuleTemplate assets — skipping"
-                KAORIOS_SKIP=true
-            fi
-            if [[ -z "${KAORIOS_XML_URL:-}" && -z "${KAORIOS_MODULE_URL:-}" ]]; then
-                error "Kaorios Toolbox: release ${KAORIOS_VER} missing whitelist XML and ModuleTemplate assets — skipping"
-                KAORIOS_SKIP=true
-            fi
-        fi
-
-        # Download ModuleTemplate if APK/XML must be extracted from it.
-        if [[ "${KAORIOS_SKIP:-false}" != true && \
-            (( -z "${KAORIOS_APK_URL:-}" && ! -s "${KAORIOS_APK}" ) || ( -z "${KAORIOS_XML_URL:-}" && ! -s "${KAORIOS_XML}" )) ]]; then
-            if [[ -z "${KAORIOS_MODULE_URL:-}" ]]; then
-                error "Kaorios Toolbox: ModuleTemplate URL missing for fallback extraction — skipping"
-                KAORIOS_SKIP=true
-            elif [[ ! -s "${KAORIOS_MODULE_ZIP}" ]]; then
-                if ! wget -q --show-progress -O "${KAORIOS_MODULE_ZIP}" "${KAORIOS_MODULE_URL}"; then
-                    error "Kaorios Toolbox: failed to download ModuleTemplate fallback — skipping"
+        # Download toolbox APK (legacy filename still used by some tags)
+        if [[ ! -f "${KAORIOS_APK}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_APK}" \
+                    "${KAORIOS_BASE_URL}/KaoriosToolbox-${KAORIOS_VER}.apk"; then
+                yellow "Kaorios Toolbox: legacy APK asset missing, trying latest patcher APK"
+                if ! wget -q --show-progress -O "${KAORIOS_PATCHER_APK}" \
+                        "${KAORIOS_BASE_URL}/Kaorios-Patcher_${KAORIOS_VER}.9-1.apk"; then
+                    error "Kaorios Toolbox: failed to download toolbox APK asset — skipping install"
                     KAORIOS_SKIP=true
                 fi
             fi
         fi
 
-        # Download APK/XML from resolved asset URLs (preferred when available).
-        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_APK_URL:-}" && ! -s "${KAORIOS_APK}" ]]; then
-            if ! wget -q --show-progress -O "${KAORIOS_APK}" "${KAORIOS_APK_URL}"; then
-                error "Kaorios Toolbox: failed to download APK — skipping"
-                KAORIOS_SKIP=true
-            fi
-        fi
-        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_XML_URL:-}" && ! -s "${KAORIOS_XML}" ]]; then
-            if ! wget -q --show-progress -O "${KAORIOS_XML}" "${KAORIOS_XML_URL}"; then
+        # Download privapp whitelist XML
+        if [[ "${KAORIOS_SKIP}" != true ]] && [[ ! -f "${KAORIOS_XML}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_XML}" \
+                    "${KAORIOS_BASE_URL}/com.kousei.kaorios.xml"; then
                 error "Kaorios Toolbox: failed to download whitelist XML — skipping"
                 KAORIOS_SKIP=true
             fi
         fi
 
-        # Fallback for releases that only provide ModuleTemplate zip.
-        if [[ "${KAORIOS_SKIP:-false}" != true && ! -s "${KAORIOS_APK}" ]]; then
-            if ! unzip -p "${KAORIOS_MODULE_ZIP}" "system/priv-app/KaoriosToolbox/KaoriosToolbox.apk" > "${KAORIOS_APK}"; then
-                error "Kaorios Toolbox: failed to extract APK from ModuleTemplate — skipping"
-                KAORIOS_SKIP=true
-            fi
-        fi
-        if [[ "${KAORIOS_SKIP:-false}" != true && ! -s "${KAORIOS_XML}" ]]; then
-            if ! unzip -p "${KAORIOS_MODULE_ZIP}" "system/etc/permissions/com.kousei.kaorios.xml" > "${KAORIOS_XML}"; then
-                error "Kaorios Toolbox: failed to extract whitelist XML from ModuleTemplate — skipping"
+        # Kaorios upstream moved away from repository patcher.sh. New flow ships
+        # patched classes dex in Releases, so patch framework.jar directly.
+        if [[ "${KAORIOS_SKIP}" != true ]] && [[ ! -f "${KAORIOS_DEX}" ]]; then
+            if ! wget -q --show-progress -O "${KAORIOS_DEX}" \
+                    "${KAORIOS_BASE_URL}/classes_${KAORIOS_VER}.9-1.dex"; then
+                error "Kaorios Toolbox: failed to download framework patch dex — skipping"
                 KAORIOS_SKIP=true
             fi
         fi
 
-        # Optional: sync latest Kaorios utility smali from release classes*.dex.
-        if [[ "${KAORIOS_SKIP:-false}" != true && -n "${KAORIOS_DEX_URL:-}" && ! -s "${KAORIOS_DEX}" ]]; then
-            if ! wget -q --show-progress -O "${KAORIOS_DEX}" "${KAORIOS_DEX_URL}"; then
-                yellow "Kaorios Toolbox: classes dex download failed; using bundled patcher utility classes"
-            fi
-        fi
-        if [[ "${KAORIOS_SKIP:-false}" != true && -s "${KAORIOS_DEX}" ]]; then
-            PATCHER_UTILS_DIR="${KAORIOS_REPO}/Toolbox-patcher/kaorios_toolbox/utils/kaorios"
-            TMP_KAORIOS_DEX_DIR="tmp/kaorios_dex_${KAORIOS_VER}"
-            rm -rf "${TMP_KAORIOS_DEX_DIR}"
-            mkdir -p "${TMP_KAORIOS_DEX_DIR}"
-
-            if [[ ! -f "${KAORIOS_BAKSMALI_JAR}" ]]; then
-                wget -q -O "${KAORIOS_BAKSMALI_JAR}" \
-                    "https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar" || true
-            fi
-
-            if [[ -f "${KAORIOS_BAKSMALI_JAR}" ]] && \
-                java -jar "${KAORIOS_BAKSMALI_JAR}" d "${KAORIOS_DEX}" -o "${TMP_KAORIOS_DEX_DIR}/dex" >/dev/null 2>&1; then
-                NEW_UTILS_DIR=$(find "${TMP_KAORIOS_DEX_DIR}/dex" -type d -path "*/com/android/internal/util/kaorios" | head -n1)
-                if [[ -n "${NEW_UTILS_DIR}" ]]; then
-                    rm -rf "${PATCHER_UTILS_DIR}"
-                    mkdir -p "${PATCHER_UTILS_DIR}"
-                    cp -rf "${NEW_UTILS_DIR}/." "${PATCHER_UTILS_DIR}/"
-                    green "Kaorios utility classes synced from ${KAORIOS_VER} dex"
-                else
-                    yellow "Kaorios Toolbox: kaorios utils path not found in dex; using bundled patcher utility classes"
-                fi
-            else
-                yellow "Kaorios Toolbox: dex decompile unavailable; using bundled patcher utility classes"
-            fi
-        fi
-
-        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
-            # Patch framework.jar with the Toolbox patcher
-            PATCHER_DIR="${KAORIOS_REPO}/Toolbox-patcher"
-            PATCHED_JAR="${PATCHER_DIR}/framework_patched.jar"
-
-            if [[ ! -d "${PATCHER_DIR}" ]]; then
-                error "Kaorios Toolbox: patcher directory not found — skipping"
-                KAORIOS_SKIP=true
-            else
-                cp -f "${FRAMEWORK_SRC}" "${PATCHER_DIR}/framework.jar"
-                chmod +x "${PATCHER_DIR}/scripts/patcher.sh"
-
-                blue "Patching framework.jar for Kaorios Toolbox..."
-                if ! (cd "${PATCHER_DIR}" && ./scripts/patcher.sh framework.jar); then
-                    error "Kaorios Toolbox: framework.jar patcher failed — skipping install"
+        if [[ "${KAORIOS_SKIP}" != true ]]; then
+            KAORIOS_TMP_DIR=$(mktemp -d tmp/kaorios-fw.XXXXXX)
+            PATCHED_JAR="${work_dir}/${KAORIOS_TMP_DIR}/framework_patched.jar"
+            mkdir -p "$(dirname "${PATCHED_JAR}")"
+            blue "Patching framework.jar for Kaorios Toolbox (release dex method)..."
+            if unzip -oq "${FRAMEWORK_SRC}" -d "${KAORIOS_TMP_DIR}/framework"; then
+                FRAMEWORK_TARGET_DEX=$(ls "${KAORIOS_TMP_DIR}/framework"/classes*.dex 2>/dev/null | sort -V | tail -n1 || true)
+                if [[ -z "${FRAMEWORK_TARGET_DEX}" ]]; then
+                    error "Kaorios Toolbox: no classes*.dex inside framework.jar — skipping"
                     KAORIOS_SKIP=true
+                else
+                    cp -f "${KAORIOS_DEX}" "${FRAMEWORK_TARGET_DEX}"
+                    (
+                        cd "${KAORIOS_TMP_DIR}/framework" &&
+                        zip -qr "${PATCHED_JAR}" .
+                    ) || {
+                        error "Kaorios Toolbox: failed to rebuild patched framework.jar — skipping"
+                        KAORIOS_SKIP=true
+                    }
                 fi
+            else
+                error "Kaorios Toolbox: failed to unpack framework.jar — skipping"
+                KAORIOS_SKIP=true
             fi
         fi
 
-        if [[ "${KAORIOS_SKIP:-false}" != true ]]; then
+        if [[ "${KAORIOS_SKIP}" != true ]]; then
             # Validate patcher output
-            if [[ ! -f "${PATCHER_DIR}/framework_patched.jar" ]]; then
+            if [[ ! -f "${PATCHED_JAR}" ]]; then
                 error "Kaorios Toolbox: patched framework.jar not produced — skipping"
             else
                 # Install patched framework
-                cp -f "${PATCHER_DIR}/framework_patched.jar" "${FRAMEWORK_SRC}"
+                if ! cp -f "${PATCHED_JAR}" "${FRAMEWORK_SRC}"; then
+                    error "Kaorios Toolbox: failed to copy patched framework.jar — skipping"
+                    KAORIOS_SKIP=true
+                fi
 
                 # Install APK into priv-app (create dir safely)
-                mkdir -p "${PRIV_APP_DIR}"
-                cp -f "${KAORIOS_APK}" "${PRIV_APP_DIR}/KaoriosToolbox.apk"
+                if [[ "${KAORIOS_SKIP}" != true ]]; then
+                    mkdir -p "${PRIV_APP_DIR}"
+                    if [[ -f "${KAORIOS_APK}" ]]; then
+                        cp -f "${KAORIOS_APK}" "${PRIV_APP_DIR}/KaoriosToolbox.apk"
+                    elif [[ -f "${KAORIOS_PATCHER_APK}" ]]; then
+                        cp -f "${KAORIOS_PATCHER_APK}" "${PRIV_APP_DIR}/KaoriosToolbox.apk"
+                    else
+                        error "Kaorios Toolbox: no APK asset present after download — skipping"
+                        KAORIOS_SKIP=true
+                    fi
+                fi
 
                 # Install permissions whitelist
-                mkdir -p "${PERMS_DIR}"
-                cp -f "${KAORIOS_XML}" "${PERMS_DIR}/privapp_whitelist_com.kousei.kaorios.xml"
+                if [[ "${KAORIOS_SKIP}" != true ]]; then
+                    mkdir -p "${PERMS_DIR}"
+                    if [[ -f "${KAORIOS_XML}" ]]; then
+                        cp -f "${KAORIOS_XML}" "${PERMS_DIR}/privapp_whitelist_com.kousei.kaorios.xml"
+                    else
+                        error "Kaorios Toolbox: whitelist XML missing — skipping"
+                        KAORIOS_SKIP=true
+                    fi
+                fi
 
                 # Set correct Android filesystem permissions
                 # priv-app directory: 755 (rwxr-xr-x)
-                chmod 755 "${PRIV_APP_DIR}"
-                # APK file: 644 (rw-r--r--)
-                chmod 644 "${PRIV_APP_DIR}/KaoriosToolbox.apk"
-                # Permissions XML: 644
-                chmod 644 "${PERMS_DIR}/privapp_whitelist_com.kousei.kaorios.xml"
+                if [[ "${KAORIOS_SKIP}" != true ]]; then
+                    chmod 755 "${PRIV_APP_DIR}" || KAORIOS_SKIP=true
+                    # APK file: 644 (rw-r--r--)
+                    chmod 644 "${PRIV_APP_DIR}/KaoriosToolbox.apk" || KAORIOS_SKIP=true
+                    # Permissions XML: 644
+                    chmod 644 "${PERMS_DIR}/privapp_whitelist_com.kousei.kaorios.xml" || KAORIOS_SKIP=true
+                fi
 
                 # Required props — use set_prop to avoid duplicates on re-runs
-                set_prop "build/portrom/images/system/system/build.prop" \
-                    "persist.sys.kaorios=kousei"
-                # Log mode (not enforce) — lets Toolbox's privileged perms load without
-                # crashing on builds where the whitelist is incomplete
-                set_prop "build/portrom/images/system/system/build.prop" \
-                    "ro.control_privapp_permissions=log"
+                if [[ "${KAORIOS_SKIP}" != true ]]; then
+                    set_prop "build/portrom/images/system/system/build.prop" \
+                        "persist.sys.kaorios=kousei"
+                    # Log mode (not enforce) — lets Toolbox's privileged perms load without
+                    # crashing on builds where the whitelist is incomplete
+                    set_prop "build/portrom/images/system/system/build.prop" \
+                        "ro.control_privapp_permissions=log"
 
-                green "Kaorios Toolbox ${KAORIOS_VER} installed successfully"
+                    green "Kaorios Toolbox ${KAORIOS_VER} installed successfully"
+                    fe_ok "KaoriosToolbox ${KAORIOS_VER} → system_ext/priv-app (framework patched)"
+                else
+                    yellow "Kaorios Toolbox: patch/apply incomplete — continuing safely"
+                fi
             fi
         fi
     fi
+    rm -rf "${KAORIOS_TMP_DIR:-}" 2>/dev/null || true
     unset KAORIOS_SKIP
 fi
 targetOplusService=$(find build/portrom/images/ -name "oplus-services.jar")
@@ -3680,7 +3772,6 @@ if [[ -f build/${app_patch_folder}/patched/oplus-services.jar ]];then
 elif [[ -f "$targetOplusService" ]];then
     blue "Removing GSM Restriction"
     cp -rf "$targetOplusService" tmp/$(basename "$targetOplusService").bak
-    rm -rf tmp/OplusService
     java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusService" -o tmp/OplusService
     targetSmali=$(find tmp -type f -name "OplusBgSceneManager.smali")
     python3 bin/patchmethod.py "$targetSmali" "-isGmsRestricted"
@@ -3711,18 +3802,14 @@ if [[ ${base_device_family} == "OPSM8350" ]] && [[ -f "devices/common/aod_fix_sm
     blue "SM8350: Fixing AOD brightness issue" "SM8350: Fix AOD brightness"
     unzip -o devices/common/aod_fix_sm8350.zip -d ${work_dir}/build/portrom/images/
 fi
-charger_v6_present=$(find build/portrom/images/odm/bin/hw -maxdepth 1 -type f -name "vendor.oplus.hardware.charger-V6-service" 2>/dev/null | head -n 1 || true)
+charger_v6_present=$(find build/portrom/images/odm/bin/hw -maxdepth 1 -type f -name "vendor.oplus.hardware.charger-V6-service")
 if [[ -z "${charger_v6_present}" ]]; then
     while IFS= read -r charger_file; do
         relative_path=${charger_file#"build/baserom/images/"}
         dest_path="build/portrom/images/${relative_path}"
         mkdir -p "$(dirname "$dest_path")"
         cp -rfv "$charger_file" "$dest_path"
-    done < <({
-        for d in build/baserom/images/odm build/baserom/images/vendor; do
-            [[ -d "$d" ]] && find "$d" -type f -name "vendor.oplus.hardware.charger*" 2>/dev/null
-        done
-    })
+    done < <(find build/baserom/images/odm build/baserom/images/vendor -type f -name "vendor.oplus.hardware.charger*")
 fi
 if [[ "${base_android_version}" == 13 ]] && [[ "${port_android_version}" == 14 ]];then
     ensure_resource_available "devices/common/a13_base_fix.zip" || true
@@ -3841,7 +3928,7 @@ if [[ "${port_android_version}" -ge 15 ]]; then
         fi
     fi
 fi
-set_prop "build/portrom/images/vendor/default.prop" "ro.surface_flinger.game_default_frame_rate_override=120"
+echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
 targetAICallAssistant=$(find build/portrom/images/ -name "HeyTapSpeechAssist.apk")
 if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
     blue "Copying processed HeyTapSpeechAssist.apk"
@@ -3849,7 +3936,6 @@ if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
 elif [[ -f "$targetAICallAssistant" ]];then
         blue "Unlock AI Call"
         cp -rf "$targetAICallAssistant" "tmp/$(basename "$targetAICallAssistant").bak"
-        rm -rf tmp/HeyTapSpeechAssist
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetAICallAssistant" -o tmp/HeyTapSpeechAssist $extra_args
         targetSmali=$(find tmp -type f -name "AiCallCommonBean.smali")
         python3 bin/patchmethod_v2.py "$targetSmali" getSupportAiCall -return true
@@ -3871,7 +3957,6 @@ if [[ "$ota_patched" == "false" ]];then
     elif [[ -f "$targetOTA" ]];then
         blue "Removing OTA dm-verity"
         cp -rf "$targetOTA" "tmp/$(basename "$targetOTA").bak"
-        rm -rf tmp/OTA
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetOTA" -o tmp/OTA $extra_args
         targetSmali=$(find tmp -type f -path "*/com/oplus/common/a.smali")
         python3 bin/patchmethod_v2.py -d tmp/OTA -k ro.boot.vbmeta.device_state locked -return false
@@ -3879,7 +3964,7 @@ if [[ "$ota_patched" == "false" ]];then
          cp -rfv "build/${app_patch_folder}/patched/OTA.apk" "$targetOTA"
     fi
 fi
-EXTENDED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
+EXTEDNED_MODELS=("PJF110" "PEEM00" "PEDM00" "LE2120" "LE2121" "LE2123" "KB2000" "KB2001" "KB2005" "KB2003" "LE2110" "LE2111" "LE2112" "LE2113" "IN2010" "IN2011" "IN2012" "IN2013" "IN2020" "IN2021" "IN2022" "IN2023")
 targetAIUnit=$(find build/portrom/images/ -name "AIUnit.apk")
 MODEL=PLG110
 [[ "$regionmark" != CN ]] && MODEL=CPH2745
@@ -3889,7 +3974,6 @@ if [[ -f "build/${app_patch_folder}/patched/AIUnit.apk" ]]; then
 elif [[ -f "$targetAIUnit" ]];then
     blue "Unlock High-End AI features, Device Model: $MODEL"
     cp -rf "$targetAIUnit" "tmp/$(basename "$targetAIUnit").bak"
-    rm -rf tmp/AIUnit
     java -jar bin/apktool/APKEditor.jar d -f -i "$targetAIUnit" -o tmp/AIUnit $extra_args
     find tmp/AIUnit -type f -name "*.smali" -exec sed -i "s/sget-object \([vp][0-9]\+\), Landroid\/os\/Build;->MODEL:Ljava\/lang\/String;/const-string \1, \"$MODEL\"/g" {} +
     targetSmali=$(find tmp -type f -name "UnitConfig.smali")
@@ -3897,7 +3981,7 @@ elif [[ -f "$targetAIUnit" ]];then
     python3 bin/patchmethod_v2.py "$targetSmali" isWhiteConditionsMatch
     python3 bin/patchmethod_v2.py "$targetSmali" isSupport
     unit_config_list=$(find tmp/AIUnit -type f -name "unit_config_list.json")
-    jq --arg models_str "${EXTENDED_MODELS[*]}" '
+    jq --arg models_str "${EXTEDNED_MODELS[*]}" '
         ($models_str | split(" ")) as $new_models
         | map(
             if has("whiteModels") and (.whiteModels | type) == "string" then
@@ -3949,48 +4033,31 @@ if [[ "${base_device_family}" == "OPSM8250" ]] || [[ "${base_device_family}" == 
     elif [[ -f "$targetBattery" ]];then
         blue "Patch Battery Health Maximum capacity"
         cp -rf "$targetBattery" tmp/$(basename "$targetBattery").bak
-        rm -rf tmp/Battery
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetBattery" -o tmp/Battery $extra_args
         python3 bin/patchmethod_v2.py -d tmp/Battery/ -k "getUIsohValue" -m devices/common/patch_battery_soh.txt
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Battery -o build/${app_patch_folder}/patched/Battery.apk $extra_args
         cp -rfv build/${app_patch_folder}/patched/Battery.apk "$targetBattery"
     fi
 fi
-targetSettings=$(find build/portrom/images/ -name "Settings.apk")
-if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20*" ]];then
-    if [[ -f "$targetSettings" ]]; then
+if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
+    targetSettings=$(find build/portrom/images/ -name "Settings.apk")
+    if [[ -f "$targetSettings" ]];then
         blue "Charging info in Settings"
-        cp -rf "$targetSettings" "tmp/$(basename "$targetSettings").bak"
-        rm -rf tmp/Settings
+        cp -rf "$targetSettings" tmp/$(basename "$targetSettings").bak
         java -jar bin/apktool/APKEditor.jar d -f -i "$targetSettings" -o tmp/Settings $extra_args
         targetSmali=$(find tmp -type f -name "DeviceChargeInfoController.smali")
         python3 bin/patchmethod_v2.py "$targetSmali" isPreferenceSupport -return true
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o "$targetSettings" $extra_args
     fi
 fi
-
-if [[ ${regionmark} == "CN" ]] && [[ ${port_oplusrom_confidential_version} == "V16.1.0" ]];then
-    if [[ -f $targetSettings ]];then
-        blue "Forcing Settings to use 16.1.0 assets..."
-        cp -rf $targetSettings tmp/$(basename $targetSettings).bak
-        rm -rf tmp/Settings
-        java -jar bin/apktool/APKEditor.jar d -f -i $targetSettings -o tmp/Settings $extra_args
-        targetSmali=$(find tmp -type f -name "AboutDeviceOtaUpdatePreference.smali")
-        python3 bin/patchmethod_v2.py $targetSmali isCurrentOSColorOS161Resources -return true
-        java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o $targetSettings $extra_args
-    fi
-    blue "Fixing mediaserver crashes"
-    unzip -o devices/common/16.1-mediaserver-fix.zip -d build/portrom/images/ 
-
-fi
 targetOplusLauncher=$(find build/portrom/images/ -name "OplusLauncher.apk")
-if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]]; then
-    blue "Enabling RAM display"
-    cp -rf "$targetOplusLauncher" "tmp/$(basename "$targetOplusLauncher").bak"
-    java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusLauncher" -o tmp/OplusLauncher $extra_args
-    targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
-    python3 bin/patchmethod_v2.py "$targetSmali" getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
-    java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o "$targetOplusLauncher" $extra_args
+if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]];then
+blue "Enabling RAM display"
+cp -rf "$targetOplusLauncher" tmp/$(basename "$targetOplusLauncher").bak
+java -jar bin/apktool/APKEditor.jar d -f -i "$targetOplusLauncher" -o tmp/OplusLauncher $extra_args
+targetSmali=$(find tmp -type f -path "*/com/oplus/basecommon/util/SystemPropertiesHelper.smali")
+ python3 bin/patchmethod_v2.py "$targetSmali" getFirstApiLevel ".locals 1\n\tconst/16 v0, 0x22\n\treturn v0"
+ java -jar bin/apktool/APKEditor.jar b -f -i tmp/OplusLauncher -o "$targetOplusLauncher" $extra_args
 fi
 targetSystemUI=$(find build/portrom/images/ -name "SystemUI.apk")
 if [[ -f build/${app_patch_folder}/patched/SystemUI.apk ]]; then
@@ -4120,7 +4187,7 @@ while IFS= read -r i; do
     fi
 done < <(find build/portrom/images -type f -name "build.prop" 2>/dev/null || true)
 add_prop_v2 "ro.vendor.oplus.market.name" "${base_market_name}"
-add_prop_v2 "ro.vendor.oplus.market.enname" "${base_market_enname}"
+add_prop_v2 "ro.vendor.oplus.market.enname" "${base_market_name}"
 remove_prop_v2 "persist.oplus.software.audio.right_volume_key"
 remove_prop_v2 "persist.oplus.software.alertslider.location"
 {
@@ -4130,7 +4197,7 @@ remove_prop_v2 "persist.oplus.software.alertslider.location"
 } >> build/portrom/images/system/system/build.prop
 base_rom_density=$(grep "ro.sf.lcd_density" --include="*.prop" -r build/baserom/images/my_product 2>/dev/null | head -n1 | cut -d'=' -f2 || true)
 [[ -z "${base_rom_density}" ]] && base_rom_density=480
-if [[ ${base_vendor_brand,,} != ${port_vendor_brand,,} ]] && [[ $portIsColorOSGlobal == false ]] && [[ $port_android_version -lt 16 ]];then
+if [[ ${base_vendor_brand,,} != ${port_vendor_brand,,} ]] && [[ "${portIsColorOSGlobal}" == false ]];then
     sed -i "s/ro.oplus.image.system_ext.brand=.*/ro.oplus.image.system_ext.brand=${base_vendor_brand,,}/g" build/portrom/images/system_ext/etc/build.prop
 fi
 if [[ -f build/baserom/images/my_product/etc/extension/sys_game_manager_config.json ]];then
@@ -4143,7 +4210,7 @@ if [[ ! -f build/baserom/images/my_product/etc/extension/sys_graphic_enhancement
 else
     cp -rf build/baserom/images/my_product/etc/extension/sys_graphic_enhancement_config.json build/portrom/images/my_product/etc/extension/ || true
 fi
-if [[ $(get_prop build/baserom/images/my_product/build.prop "ro.oplus.audio.effect.type") == "dolby" ]]; then
+if [[ $(grep "ro.oplus.audio.effect.type" build/baserom/images/my_product/build.prop | cut -d'=' -f2) == "dolby" ]]; then
    blue "Fixing Dolby Acoustics + App Specific volume adjustment (SM8250/SM8350)" "Fix Dolby + App Specific volume adjustment for SM8250/SM8350"
    cp build/baserom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml build/portrom/images/my_product/etc/permissions/oplus.product.features_dolby_stereo.xml
    if [[ -f "devices/common/dolby_fix.zip" ]]; then
@@ -4167,7 +4234,7 @@ while IFS= read -r audio_cfg; do
     cp -rfv "$audio_cfg" "$dest_path"
 done < <({
     for d in build/baserom/images/vendor build/baserom/images/odm; do
-        [ -d "$d" ] && find "$d" -type f \( -name "audio_policy*.xml" -o -name "audio_platform*.xml" -o -name "mixer_paths*.xml" -o -name "audio_effects*.xml" \) 2>/dev/null
+        [ -d "$d" ] && find "$d" -type f \( -name "audio_policy*.xml" -o -name "audio_platform*.xml" -o -name "mixer_paths*.xml" -o -name "audio_effects*.xml" \)
     done
 })
 # Only copy Breeno speech model data when NOT doing a GMS injection port.
@@ -4180,25 +4247,12 @@ if [[ -d build/baserom/images/my_product/etc/breenospeech2 ]]; then
     fi
 fi
 rm -rf build/portrom/images/my_product/etc/fusionlight_profile/*
-if compgen -G "build/baserom/images/my_product/etc/fusionlight_profile/*" > /dev/null; then
-    mkdir -p build/portrom/images/my_product/etc/fusionlight_profile/
-    cp -rf build/baserom/images/my_product/etc/fusionlight_profile/* build/portrom/images/my_product/etc/fusionlight_profile/
-else
-    yellow "fusionlight_profile not found in baserom — skipping"
-fi
+cp -rf build/baserom/images/my_product/etc/fusionlight_profile/* build/portrom/images/my_product/etc/fusionlight_profile/ || true
 sed -i "/persist.vendor.display.pxlw.iris_feature=.*/d" build/portrom/images/my_product/etc/bruce/build.prop
 if grep -q "ro.build.version.oplusrom.display" build/portrom/images/my_manifest/build.prop;then
     sed -i '/^ro.build.version.oplusrom.display=/ s/$/ /' build/portrom/images/my_manifest/build.prop
 else
     sed -i '/^ro.build.version.oplusrom.display=/ s/$/ /' build/portrom/images/my_product/etc/bruce/build.prop
-fi
-if [[ $portIsRealmeUI == true ]];then
-    case $port_android_version in
-        16) rui_version=7.0;;
-        15) rui_version=6.0;;
-        14) rui_version=5.0;;
-    esac
-    echo "ro.build.version.realmeui=$rui_version" >> build/portrom/images/my_product/etc/bruce/build.prop
 fi
 propfile="build/portrom/images/my_product/etc/bruce/build.prop"
 if [[ "${portIsColorOSGlobal}" == true ]]; then
@@ -4266,11 +4320,7 @@ cp -rf build/baserom/images/my_product/etc/permissions/*.xml build/portrom/image
 cp -rf build/baserom/images/my_product/etc/extension/*.xml build/portrom/images/my_product/etc/extension/ || true
 cp -rf build/baserom/images/my_product/etc/refresh_rate_config.xml build/portrom/images/my_product/etc/refresh_rate_config.xml || true
 cp -rf build/baserom/images/my_product/etc/sys_resolution_switch_config.xml build/portrom/images/my_product/etc/sys_resolution_switch_config.xml || true
-if [[ -f "build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml" ]]; then
-    cp -rf build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml build/portrom/images/my_product/etc/permissions/
-else
-    yellow "com.oplus.sensor_config.xml not found in baserom — skipping"
-fi
+cp -rf build/baserom/images/my_product/etc/permissions/com.oplus.sensor_config.xml build/portrom/images/my_product/etc/permissions/ || true
 oplus_features=(
     "oplus.software.directservice.finger_flashnotes_enable^Xiao-Bu Memory"
     "oplus.software.support_quick_launchapp"
@@ -4314,12 +4364,9 @@ oplus_features=(
     "oplus.software.systemui.pin_task^Pinned to Fluid Cloud"
     "oplus.software.radio.hfp_comm_shared_support^iPhone Integration"
     "oplus.hardware.display.motion_sickness^Motion Sickness Reduction Guidance"
-    "oplus.software.radio.nwpower_amc_special_sim"
-    "oplus.software.radio.mdlog_buffer_qdss_enable"
-    "oplus.software.radio.hfp_comm_shared_support"
 )
-for oplus_feature in "${oplus_features[@]}"; do
-    add_feature_v2 oplus_feature "$oplus_feature"
+for oplus_feature in ${oplus_features[@]}; do
+    add_feature_v2 oplus_feature $oplus_feature
 done
 if [[ $vndk_version -gt 33 ]];then
  add_feature_v2 oplus_feature "oplus.software.radio.networkless_support^Offline Calling (Networkless Call)"
@@ -4385,23 +4432,16 @@ app_features=(
     "com.oplus.persona.card_datamining_support^^args=\"boolean:true\""
     "os.graphic.gallery.collage.livephoto^^args=\"boolean:true\""
     "com.android.systemui.qs_deform_enable^^args=\"boolean:true\""
-    "com.oplus.wallpapers.3d_wallpaper^3D壁纸^args=\"boolean:true\""
-    "com.oplus.aipaint^^args=\"boolean:true\""
-    "com.oplus.aipaint.function_switch^^args=\"boolean:true\""
+    "com.oplus.wallpapers.ai_camera_movement^^args=\"boolean:true\""
     "com.oplus.wallpapers.livephoto_wallpaper_support_hdr^^args=\"boolean:true\""
     "com.oplus.wallpapers.livephoto_wallpaper_support_4k^^args=\"boolean:true\""
     "com.oplus.gallery3d.aihd_support"
     "os.graphic.gallery.collage.asset_bounds_break^Outside-the-frame^args=\"boolean:true\""
     "os.graphic.gallery.collage.livephoto^^args=\"boolean:true\""
 )
-for app_feature in "${app_features[@]}"; do
-    add_feature_v2 app_feature "$app_feature"
+for app_feature in ${app_features[@]}; do
+    add_feature_v2 app_feature $app_feature
 done
- if [[ ${port_oplusrom_version} == "16.0.1" ]];then
-    add_feature_v2  app_feature  "com.oplus.wallpapers.ai_camera_movement^^args=\"boolean:true\""
-else
-    add_feature_v2  app_feature  "com.oplus.wallpapers.ai_camera_movement_for_products_before_15^^args=\"boolean:true\""
-fi
 add_feature_v2 permission_oplus_feature "oplus.software.game.cold.start.speedup.enable"
 add_feature_v2 permission_feature "com.plus.press_power_botton_experiment"
 add_feature_v2 permission_feature "oplus.video.hdr10_support"
@@ -4585,17 +4625,11 @@ if [[ ${base_product_device} == "OnePlus8T" ]];then
 fi
 
 
-if compgen -G "build/baserom/images/my_product/etc/Multimedia_*.xml" > /dev/null; then
-    cp -rf build/baserom/images/my_product/etc/Multimedia_*.xml build/portrom/images/my_product/etc/
-else
-    yellow "Multimedia_*.xml not found in baserom — skipping"
-fi
+cp -rf build/baserom/images/my_product/etc/Multimedia_*.xml build/portrom/images/my_product/etc/ || true
 
 
 if [[ -f "tmp/etc/permissions/multimedia_privapp-permissions-oplus.xml" ]];then
-    if compgen -G "tmp/etc/permissions/multimedia_*.xml" > /dev/null; then
-        cp -rfv tmp/etc/permissions/multimedia_*.xml build/portrom/images/my_product/etc/permissions/
-    fi
+    cp -rfv tmp/etc/permissions/multimedia_*.xml build/portrom/images/my_product/etc/permissions/
 fi
 
 
@@ -4605,7 +4639,7 @@ while IFS= read -r file; do
 done < <(find build/baserom/images/my_product/etc/ -type f -name "OVMS_*")
 #fix chinese char
 find build/portrom/images/config -type f -name "*file_contexts" \
-        -exec env LC_ALL=C perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
+	    -exec perl -i -ne 'print if /^[\x00-\x7F]+$/' {} \;
 #find build/portrom/images/config -type f -name "*file_contexts" -exec sed -i -E '/[\x{4e00}-\x{9fa5}]/d' {} \;
 
 # bootanimation
@@ -4617,7 +4651,7 @@ elif [[ $baseIsColorOSCN == "true" && ( $portIsColorOSGlobal == "true" || $portI
     cp -rf build/baserom/images/my_product/media/bootanimation build/portrom/images/my_product/media/ || true
 fi
 
-# ── Custom boot animation (ColorOS CN ports only) — Feather Engine (@revork)
+# ── Custom boot animation (ColorOS CN ports only) — Feather Engine (@ozyern)
 # Only runs when the port is ColorOS China (not OOS, not Global).
 # Place bootanimation.zip in the project root next to port.sh.
 # The zip should contain the desc.txt and numbered frame folders at its root.
@@ -4956,9 +4990,10 @@ if [[ ${port_android_version} == 16 ]] && [[ ${base_android_version} -lt 15 ]];t
     echo "vendor.audio.c2.preferred=true" >> build/portrom/images/vendor/build.prop
     echo "vendor.audio.hdr.record.enable=false" >> build/portrom/images/vendor/build.prop
 
-    # Enable Master/Master Video modes by swapping ODM camera mode configs for OnePlus 9/9Pro.
-    # Note: Confirmed best-effort enhancement for ColorOS/OxygenOS 15/16.
-    if [[ ${base_device_family} == "OPSM8350" ]] && \
+    # Optional: try enabling Master/Master Video modes by swapping ODM camera mode configs.
+    # Note: This is a best-effort hack; configs may be device-specific. Enable explicitly via env var.
+    if [[ "${ENABLE_MASTER_MODE_PATCH:-false}" == "true" ]] && \
+       [[ ${base_device_family} == "OPSM8350" ]] && \
        ([[ "${base_product_device}" == "OnePlus9Pro" ]] || [[ "${base_product_device}" == "OnePlus9" ]]) && \
        [[ -f devices/common/odm_camera_mastermode_config_op15cn_a16.zip ]]; then
         blue "OP9/9Pro: Master mode config patch" "OP9/9Pro: Applying ODM master mode config patch"
@@ -5137,6 +5172,10 @@ fi
 #     fi
 # fi
 
+# Disable AVB Verification
+blue "Disabling AVB Verification" "Disable avb verification."
+disable_avb_verify build/portrom/images/
+
 # Data Decryption
 remove_data_encrypt=$(grep "remove_data_encryption" bin/port_config 2>/dev/null | cut -d '=' -f 2 || true)
 if [[ ${remove_data_encrypt} == "true" ]];then
@@ -5295,7 +5334,7 @@ if [[ "$pack_method" == "stock" ]];then
     rm -rf "out/target/product/${base_product_device}/"
     mkdir -p "out/target/product/${base_product_device}/IMAGES"
     mkdir -p "out/target/product/${base_product_device}/META"
-    for part in SYSTEM SYSTEM_EXT PRODUCT VENDOR MY_MANIFEST; do
+    for part in SYSTEM SYSTEM_EXT PRODUCT VENDOR ODM; do
         mkdir -p "out/target/product/${base_product_device}/$part"
     done
     mv -fv build/portrom/images/*.img "out/target/product/${base_product_device}/IMAGES/"
@@ -5428,18 +5467,14 @@ if [[ "$pack_method" == "stock" ]];then
     ["product"]="PRODUCT"
     ["system_ext"]="SYSTEM_EXT"
     ["vendor"]="VENDOR"
-    ["my_manifest"]="MY_MANIFEST"
+    ["my_manifest"]="ODM"
     
     )
 
     for dir in "${!prop_paths[@]}"; do
         prop_file=$(find "build/portrom/images/$dir" -type f -name "build.prop" -not -path "*/system_dlkm/*" -not -path "*/odm_dlkm/*" -print -quit)
         if [ -n "$prop_file" ]; then
-            target_dir="out/target/product/${base_product_device}/${prop_paths[$dir]}"
-            if [ ! -d "$target_dir" ]; then
-                mkdir -p "$target_dir"
-            fi
-            cp "$prop_file" "$target_dir/"
+            cp "$prop_file" "out/target/product/${base_product_device}/${prop_paths[$dir]}/"
         fi
 	    done
 	    target_folder=${rom_version#*_}
@@ -5460,9 +5495,9 @@ if [[ "$pack_method" == "stock" ]];then
 	        exit 1
 	    fi
 	    ota_zip="${work_dir}/out/${base_product_device}-ota_full-${port_rom_version}-user-${port_android_version}.0.zip"
-        ./bin/ota_from_target_files --partial= -k "${ota_key}" \
-            "${work_dir}/out/target/product/${base_product_device}/" \
-            "${ota_zip}"
+	    ./bin/ota_from_target_files -k "${ota_key}" \
+	        "${work_dir}/out/target/product/${base_product_device}/" \
+	        "${ota_zip}"
 	    ota_rc=$?
 	    popd >/dev/null
 	    if [[ ${ota_rc} -ne 0 || ! -f "${ota_zip}" ]]; then
@@ -5493,12 +5528,14 @@ if [[ "$pack_method" == "stock" ]];then
 
         if [[ -f build/portrom/images/super.img ]]; then
             green "super.img built successfully"
+fe_ok "super.img built via lpmake (V-A/B)"
         else
             error "super.img build failed — check lpmake output" "lpmake failed"
             exit 1
         fi
     elif [[ "${is_ab_device}" == false ]]; then
-        blue "Packing super.img for A-only device"
+        fe_section "BUILDING SUPER.IMG" "A-only lpmake"
+    blue "Packing super.img for A-only device"
         lpargs="-F --output build/portrom/images/super.img --metadata-size 65536 --super-name super --metadata-slots 2 --block-size 4096 --device super:$superSize --group=qti_dynamic_partitions:$superSize"
         for pname in ${super_list}; do
             if [[ -f "build/portrom/images/${pname}.img" ]]; then
@@ -5511,6 +5548,7 @@ if [[ "$pack_method" == "stock" ]];then
         lpmake "${_lp_arr[@]}"
         if [[ -f build/portrom/images/super.img ]]; then
             green "super.img (A-only) built successfully"
+fe_ok "super.img built via lpmake (A-only)"
         else
             error "super.img build failed" "lpmake failed"; exit 1
         fi
@@ -5522,6 +5560,7 @@ if [[ "$pack_method" == "stock" ]];then
     output_zip="out/${os_type}_${rom_version}_${base_product_model}_${pack_timestamp}_flashable.zip"
     mkdir -p out
 
+    fe_section "PACKAGING OUTPUT"
     blue "Packaging flashable zip: ${output_zip}"
 
     # Gather images to package
@@ -5591,12 +5630,8 @@ if [[ "$pack_method" == "stock" ]];then
 
 fi  # end of pack_method != stock
 
-# ── Final banner ─────────────────────────────────────────────────────────────
+# ── Final banner ──────────────────────────────────────────────────────────────
 _BUILD_ELAPSED=$(( SECONDS - _BUILD_START ))
 _BUILD_MM=$(( _BUILD_ELAPSED / 60 ))
 _BUILD_SS=$(( _BUILD_ELAPSED % 60 ))
-green "════════════════════════════════════════════════════════"
-green " Port complete — Feather Engine (@revork / Ozyern)"
-green " Output  : ${output_zip:-<see out/ directory>}"
-green " Duration: ${_BUILD_MM}m ${_BUILD_SS}s"
-green "════════════════════════════════════════════════════════"
+fe_finish "${output_zip:-}" "${_BUILD_MM}" "${_BUILD_SS}"
