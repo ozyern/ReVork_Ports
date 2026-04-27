@@ -5,9 +5,9 @@
 # Targets  : A-only and V/A-B devices  ·  Android 14+
 # Author   : @ozyern (Ozyern)          ·  github.com/ozyern
 # Base ROM : OnePlus 9 Pro lemonadep   ·  OxygenOS_14.0.0.1920
-# Tested   : OnePlus 15 (OOS 16.0.3.501) · OnePlus 13 (CN) (COS 16.0.5)
+# Tested   : OnePlus 15 (OOS 16.0.5.703) · OnePlus 15T (COS 16.0.5.703)
 #            Realme GT Neo5 240W (RMX3708_14.0.0.800)
-# Version  : Feather Engine v2 (KaoriosToolbox V2.0.3)
+# Version  : First with new Feather Engine
 # ═══════════════════════════════════════════════════════════════════════════════
 ###############################################################################
 # port.sh — main porting orchestrator
@@ -137,7 +137,35 @@ fe_banner() {
   ·─────────────────────────────────────────────────────────────────────────·
 FEATHER_ART
     printf "${_FE_RST}"
-    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}lemonadep${_FE_RST} ${_FE_DIM}(OnePlus 9 Pro · SM8350)${_FE_RST}\n"
+    # Map device code to display name and SoC
+    local device_display_name soc_name
+    case "${base_product_device}" in
+        OnePlus8T|KB2000|KB2001|KB2003|KB2005)
+            device_display_name="OnePlus 8T"
+            soc_name="SM8250"
+            ;;
+        OnePlus8Pro|IN2020|IN2021|IN2022|IN2023)
+            device_display_name="OnePlus 8 Pro"
+            soc_name="SM8250"
+            ;;
+        OnePlus9Pro|LE2120|LE2121|LE2123|LE2125)
+            device_display_name="OnePlus 9 Pro"
+            soc_name="SM8350"
+            ;;
+        OnePlus9|LE2110|LE2111|LE2112|LE2113)
+            device_display_name="OnePlus 9"
+            soc_name="SM8350"
+            ;;
+        OnePlus9R|LE2100|LE2101)
+            device_display_name="OnePlus 9R"
+            soc_name="SM8250"
+            ;;
+        *)
+            device_display_name="${base_product_model:-${base_product_device}}"
+            soc_name=""
+            ;;
+    esac
+    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}${base_product_device}${_FE_RST} ${_FE_DIM}(${device_display_name}${soc_name:+ · $soc_name})${_FE_RST}\n"
     printf "  ${_FE_DIM}base:${_FE_RST}   ${_FE_WHT}%s${_FE_RST}\n" "${baserom:-<baserom>}"
     printf "  ${_FE_DIM}source:${_FE_RST} ${_FE_WHT}%s${_FE_RST}\n" "${portrom:-<portrom>}"
     echo ""
@@ -188,13 +216,40 @@ fe_finish() {
     printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}output :${_FE_RST}  ${_FE_WHT}%-54s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "${output_file:-<see out/ directory>}"
     printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}time   :${_FE_RST}  ${_FE_GOLD}%dm %ds${_FE_RST}%-53s${_FE_PINK}║${_FE_RST}\n" \
         "$elapsed_mm" "$elapsed_ss" ""
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}lemonadep (OnePlus 9 Pro · SM8350)${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
+    # Map device code to display name and SoC
+    local device_display_name soc_name
+    case "${base_product_device}" in
+        OnePlus8T|KB2000|KB2001|KB2003|KB2005)
+            device_display_name="OnePlus 8T"
+            soc_name="SM8250"
+            ;;
+        OnePlus8Pro|IN2020|IN2021|IN2022|IN2023)
+            device_display_name="OnePlus 8 Pro"
+            soc_name="SM8250"
+            ;;
+        OnePlus9Pro|LE2120|LE2121|LE2123|LE2125)
+            device_display_name="OnePlus 9 Pro"
+            soc_name="SM8350"
+            ;;
+        OnePlus9|LE2110|LE2111|LE2112|LE2113)
+            device_display_name="OnePlus 9"
+            soc_name="SM8350"
+            ;;
+        OnePlus9R|LE2100|LE2101)
+            device_display_name="OnePlus 9R"
+            soc_name="SM8250"
+            ;;
+        *)
+            device_display_name="${base_product_model:-${base_product_device}}"
+            soc_name=""
+            ;;
+    esac
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}${base_product_device} (${device_display_name}${soc_name:+ · $soc_name})${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
     printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
     echo ""
 }
 
 # ── Print banner immediately on start ────────────────────────────────────────
-fe_banner
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GitHub Release auto-download logic (from toraidl/coloros_port)
@@ -662,6 +717,8 @@ green "product.name: Base [${base_product_name}] / Source [${port_product_name}]
 base_product_model=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.model")
 port_product_model=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.model")
 green "product.model: Base [${base_product_model}] / Source [${port_product_model}]"
+
+fe_banner
 
 if grep -q "ro.vendor.oplus.market.name" build/baserom/images/my_manifest/build.prop; then
     base_market_name=$(get_prop build/baserom/images/my_manifest/build.prop "ro.vendor.oplus.market.name")
@@ -5455,6 +5512,24 @@ if [[ "$pack_method" == "stock" ]];then
     done 
     rm -rf out/target/product/${base_product_device}/META/dynamic_partitions_info.txt
     (( groupSize = superSize - 1048576 ))
+    # Mixed port super overflow fix - OnePlus 8T only (KB2003/KB2000)
+    # Mixed ports can exceed the stock 7.5GB super group size; recalculate from actual img sizes.
+    if [[ "${base_product_device}" == "OnePlus8T" ]]; then
+        _actual_parts_size=0
+        for _img in out/target/product/${base_product_device}/IMAGES/*.img; do
+            _pname=$(basename "${_img}" .img)
+            if echo "${super_list}" | grep -qw "${_pname}"; then
+                _actual_parts_size=$(( _actual_parts_size + $(stat -c%s "${_img}") ))
+            fi
+        done
+        _min_group=$(( (_actual_parts_size + 33554432 + 4095) / 4096 * 4096 ))
+        if (( _min_group > groupSize )); then
+            groupSize=$(( (_min_group + 1048575) / 1048576 * 1048576 ))
+            superSize=$(( groupSize + 1048576 ))
+            yellow "OnePlus8T: super expanded to fit mixed port - groupSize=${groupSize} superSize=${superSize}"
+        fi
+        unset _actual_parts_size _img _pname _min_group
+    fi
     {
         echo "super_partition_size=$superSize"
         echo "super_partition_groups=qti_dynamic_partitions"
