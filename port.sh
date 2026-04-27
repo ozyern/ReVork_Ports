@@ -5,9 +5,9 @@
 # Targets  : A-only and V/A-B devices  ·  Android 14+
 # Author   : @ozyern (Ozyern)          ·  github.com/ozyern
 # Base ROM : OnePlus 9 Pro lemonadep   ·  OxygenOS_14.0.0.1920
-# Tested   : OnePlus 15 (OOS 16.0.3.501) · OnePlus 13 (CN) (COS 16.0.5)
+# Tested   : OnePlus 15 (OOS 16.0.5.703) · OnePlus 15T (COS 16.0.5.703)
 #            Realme GT Neo5 240W (RMX3708_14.0.0.800)
-# Version  : Feather Engine v2 (KaoriosToolbox V2.0.3)
+# Version  : First with new Feather Engine
 # ═══════════════════════════════════════════════════════════════════════════════
 ###############################################################################
 # port.sh — main porting orchestrator
@@ -137,7 +137,35 @@ fe_banner() {
   ·─────────────────────────────────────────────────────────────────────────·
 FEATHER_ART
     printf "${_FE_RST}"
-    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}lemonadep${_FE_RST} ${_FE_DIM}(OnePlus 9 Pro · SM8350)${_FE_RST}\n"
+    # Map device code to display name and SoC
+    local device_display_name soc_name
+    case "${base_product_device}" in
+        OnePlus8T|KB2000|KB2001|KB2003|KB2005)
+            device_display_name="OnePlus 8T"
+            soc_name="SM8250"
+            ;;
+        OnePlus8Pro|IN2020|IN2021|IN2022|IN2023)
+            device_display_name="OnePlus 8 Pro"
+            soc_name="SM8250"
+            ;;
+        OnePlus9Pro|LE2120|LE2121|LE2123|LE2125)
+            device_display_name="OnePlus 9 Pro"
+            soc_name="SM8350"
+            ;;
+        OnePlus9|LE2110|LE2111|LE2112|LE2113)
+            device_display_name="OnePlus 9"
+            soc_name="SM8350"
+            ;;
+        OnePlus9R|LE2100|LE2101)
+            device_display_name="OnePlus 9R"
+            soc_name="SM8250"
+            ;;
+        *)
+            device_display_name="${base_product_model:-${base_product_device}}"
+            soc_name=""
+            ;;
+    esac
+    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}${base_product_device}${_FE_RST} ${_FE_DIM}(${device_display_name}${soc_name:+ · $soc_name})${_FE_RST}\n"
     printf "  ${_FE_DIM}base:${_FE_RST}   ${_FE_WHT}%s${_FE_RST}\n" "${baserom:-<baserom>}"
     printf "  ${_FE_DIM}source:${_FE_RST} ${_FE_WHT}%s${_FE_RST}\n" "${portrom:-<portrom>}"
     echo ""
@@ -188,13 +216,40 @@ fe_finish() {
     printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}output :${_FE_RST}  ${_FE_WHT}%-54s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "${output_file:-<see out/ directory>}"
     printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}time   :${_FE_RST}  ${_FE_GOLD}%dm %ds${_FE_RST}%-53s${_FE_PINK}║${_FE_RST}\n" \
         "$elapsed_mm" "$elapsed_ss" ""
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}lemonadep (OnePlus 9 Pro · SM8350)${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
+    # Map device code to display name and SoC
+    local device_display_name soc_name
+    case "${base_product_device}" in
+        OnePlus8T|KB2000|KB2001|KB2003|KB2005)
+            device_display_name="OnePlus 8T"
+            soc_name="SM8250"
+            ;;
+        OnePlus8Pro|IN2020|IN2021|IN2022|IN2023)
+            device_display_name="OnePlus 8 Pro"
+            soc_name="SM8250"
+            ;;
+        OnePlus9Pro|LE2120|LE2121|LE2123|LE2125)
+            device_display_name="OnePlus 9 Pro"
+            soc_name="SM8350"
+            ;;
+        OnePlus9|LE2110|LE2111|LE2112|LE2113)
+            device_display_name="OnePlus 9"
+            soc_name="SM8350"
+            ;;
+        OnePlus9R|LE2100|LE2101)
+            device_display_name="OnePlus 9R"
+            soc_name="SM8250"
+            ;;
+        *)
+            device_display_name="${base_product_model:-${base_product_device}}"
+            soc_name=""
+            ;;
+    esac
+    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}${base_product_device} (${device_display_name}${soc_name:+ · $soc_name})${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
     printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
     echo ""
 }
 
 # ── Print banner immediately on start ────────────────────────────────────────
-fe_banner
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GitHub Release auto-download logic (from toraidl/coloros_port)
@@ -662,6 +717,8 @@ green "product.name: Base [${base_product_name}] / Source [${port_product_name}]
 base_product_model=$(get_prop build/baserom/images/my_manifest/build.prop "ro.product.model")
 port_product_model=$(get_prop build/portrom/images/my_manifest/build.prop "ro.product.model")
 green "product.model: Base [${base_product_model}] / Source [${port_product_model}]"
+
+fe_banner
 
 if grep -q "ro.vendor.oplus.market.name" build/baserom/images/my_manifest/build.prop; then
     base_market_name=$(get_prop build/baserom/images/my_manifest/build.prop "ro.vendor.oplus.market.name")
@@ -4640,7 +4697,7 @@ while IFS= read -r sound_trigger_file; do
     cp -rfv "$sound_trigger_file" "$dest_path"
 done < <(find build/baserom/images/ -type f -name "sound_trigger_*")
 
-if [[ ${base_product_device} == "OnePlus8T" ]];then 
+if [[ ${port_product_device} == "OnePlus8T" ]];then 
     # Voice_trigger for OnePlus 8T
     add_feature_v2 oplus_feature "oplus.software.audio.voice_wakeup_support^Legacy Voice Wake" "oplus.software.audio.voice_wakeup_3words_support"
     #add_feature "oplus.software.speechassist.oneshot.support" build/portrom/images/my_product/etc/extension/com.oplus.oplus-feature.xml
@@ -5455,23 +5512,6 @@ if [[ "$pack_method" == "stock" ]];then
     done 
     rm -rf out/target/product/${base_product_device}/META/dynamic_partitions_info.txt
     (( groupSize = superSize - 1048576 ))
-    # OnePlus 8T: mixed ports regularly exceed the stock 7.5GB super group size.
-    # Measure actual packed img sizes (via super_list_info — the exact same list
-    # delta_generator reads) and expand groupSize/superSize before writing metadata.
-    if [[ "${base_product_device}" == "OnePlus8T" ]]; then
-        _parts_total=0
-        for _pname in ${super_list_info}; do
-            _img="out/target/product/${base_product_device}/IMAGES/${_pname}.img"
-            [[ -f "${_img}" ]] && _parts_total=$(( _parts_total + $(stat -c%s "${_img}") ))
-        done
-        _needed=$(( (_parts_total + 33554432 + 1048575) / 1048576 * 1048576 ))
-        if (( _needed > groupSize )); then
-            groupSize=${_needed}
-            superSize=$(( groupSize + 1048576 ))
-            yellow "OnePlus8T: super expanded — groupSize=${groupSize} superSize=${superSize}"
-        fi
-        unset _parts_total _img _pname _needed
-    fi
     {
         echo "super_partition_size=$superSize"
         echo "super_partition_groups=qti_dynamic_partitions"
