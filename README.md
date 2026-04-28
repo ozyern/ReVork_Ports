@@ -37,7 +37,7 @@ It enables you to bring newer ColorOS firmware (e.g., from Android 14/15/16) to 
 - ✅ NFC
 - ✅ Auto Brightness
 - ✅ 120Hz Smart Refresh Rate
-- ✅ 50W AIRVOOC & 65W SuperVOOC Charging enabled 
+- ✅ 50W AirVOOC & 65W SuperVOOC Charging enabled 
 
 ## 🐛 Known Bugs
 - ❌ **Breeno Voice Assistant:** Voice wake-up is currently not working.
