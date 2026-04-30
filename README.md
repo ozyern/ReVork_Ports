@@ -69,9 +69,9 @@ sudo ./port.sh /path/to/baserom.zip /path/to/portrom.zip
 ```
 
 ### 📦 OnePlus 9/9 Pro Specific Enhancements
-Significant optimizations have been engineered specifically for the OnePlus 9 Pro:
+Significant optimizations have been engineered specifically for the OnePlus 9/9 Pro:
 - Restores **Hasselblad Master Mode** configs for newer camera framework implementations.
-- Included logic to detect and flash any custom kernels (like SukiSU or Rapchick) via AnyKernel directly from `devices/OnePlus9Pro/`.
+- Included logic to detect and flash any custom kernels via AnyKernel directly from `devices/OnePlus9Pro/`.
 - Automated `camera5.0/camera6.0` framework injections for full functionality on Android 15 and 16.
 - Integrated `os.charge.settings.wirelesscharging.power` attributes specifically granting 50W wireless capabilities in the Settings app for the device.
 - Full Live Photo configuration injection and NFC APEX replacements for A16 compatibility.
