@@ -68,7 +68,7 @@ sudo ./setup.sh
 sudo ./port.sh /path/to/baserom.zip /path/to/portrom.zip
 ```
 
-### 📦 OnePlus 9 Pro Specific Enhancements
+### 📦 OnePlus 9/9 Pro Specific Enhancements
 Significant optimizations have been engineered specifically for the OnePlus 9 Pro:
 - Restores **Hasselblad Master Mode** configs for newer camera framework implementations.
 - Included logic to detect and flash any custom kernels (like SukiSU or Rapchick) via AnyKernel directly from `devices/OnePlus9Pro/`.
