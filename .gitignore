@@ -1,0 +1,8 @@
+out/
+tmp/
+build/
+devices/*/kernel.zip
+devices/*/vendor_boot.img
+>>>>>>> 8398d16 (QOL: Switch to rust-based payload-dumper in order to increase efficiency)
+cache/
+/*.zip
