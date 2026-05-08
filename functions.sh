@@ -140,20 +140,6 @@ is_property_exists () {
     fi
 }
 
-disable_avb_verify() {
-    fstab=$1
-    blue "Disabling avb_verify: $fstab"
-    if [[ ! -f $fstab ]]; then
-        yellow "$fstab not found, please check it manually"
-    else
-        sed -i "s/,avb_keys=.*avbpubkey//g" $fstab
-        sed -i "s/,avb=vbmeta_system//g" $fstab
-        sed -i "s/,avb=vbmeta_vendor//g" $fstab
-        sed -i "s/,avb=vbmeta//g" $fstab
-        sed -i "s/,avb//g" $fstab
-    fi
-}
-
 extract_partition() {
     part_img=$1
     part_name=$(basename ${part_img})
@@ -826,31 +812,62 @@ convert_version_to_number() {
 }
 
 get_oplusrom_version() {
+    # Returns the highest oplusrom version found in the portrom as a normalized
+    # X.Y.Z string (e.g. "16.1.0"), so callers can use simple == or == 16.1*
+    # comparisons without worrying about "V" prefixes or missing patch levels.
+    #
+    # Priority:
+    #   1. ro.build.version.oplusrom.display  (human-readable, e.g. "V16.1.0")
+    #   2. ro.build.version.oplusrom.confidential (fallback, same format)
+    #
+    # Scans every likely build.prop location — 16.1 CN builds sometimes only
+    # carry the version in product/ rather than my_manifest/.
+
     local max_version=""
     local max_version_number=0
-    
+
     local prop_files=(
         "build/portrom/images/my_manifest/build.prop"
-        "build/portrom/images/my_product/build.prop" 
+        "build/portrom/images/my_product/build.prop"
+        "build/portrom/images/my_product/etc/bruce/build.prop"
+        "build/portrom/images/product/build.prop"
+        "build/portrom/images/system/system/build.prop"
     )
-    
-    # Scan candidates and return the highest version
-    for prop_file in "${prop_files[@]}"; do
-        if [[ -f "$prop_file" ]]; then
-            local version_value=$(grep -E "^ro\.build\.version\.oplusrom\.display=" "$prop_file" 2>/dev/null | cut -d'=' -f2)
-            if [[ -n "$version_value" ]]; then
-                local clean_version=$(echo "$version_value" | sed 's/[^0-9.]//g')
-                IFS='.' read -ra parts <<< "$clean_version"
-                local version_number=$((${parts[0]:-0} * 10000 + ${parts[1]:-0} * 100 + ${parts[2]:-0}))
-                
-                if [[ $version_number -gt $max_version_number ]]; then
-                    max_version_number=$version_number
-                    max_version="$clean_version"
-                fi
-            fi
+
+    local prop_keys=(
+        "ro.build.version.oplusrom.display"
+        "ro.build.version.oplusrom.confidential"
+    )
+
+    _try_version() {
+        local raw="$1"
+        [[ -z "$raw" ]] && return
+        # Strip anything that isn't a digit or dot (handles "V16.1.0", "ColorOS 16.1.0", etc.)
+        local clean
+        clean=$(echo "$raw" | sed 's/[^0-9.]//g' | sed 's/^\.\+//;s/\.\+$//')
+        [[ -z "$clean" ]] && return
+        # Normalize to X.Y.Z — pad with .0 if only X.Y (or .0.0 if only X)
+        IFS='.' read -ra _parts <<< "$clean"
+        local major=${_parts[0]:-0}
+        local minor=${_parts[1]:-0}
+        local patch=${_parts[2]:-0}
+        local version_number=$(( major * 10000 + minor * 100 + patch ))
+        if [[ $version_number -gt $max_version_number ]]; then
+            max_version_number=$version_number
+            max_version="${major}.${minor}.${patch}"
         fi
+    }
+
+    for prop_file in "${prop_files[@]}"; do
+        [[ -f "$prop_file" ]] || continue
+        for prop_key in "${prop_keys[@]}"; do
+            local raw_val
+            raw_val=$(grep -m1 "^${prop_key}=" "$prop_file" 2>/dev/null | cut -d'=' -f2-) || true
+            _try_version "$raw_val"
+        done
     done
-    
+
+    unset -f _try_version
     echo "$max_version"
 }
 
