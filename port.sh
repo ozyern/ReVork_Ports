@@ -95,28 +95,42 @@ source functions.sh
 check unzip aria2c 7z zip java python3 zstd bc xmlstarlet
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Feather Engine — Terminal UI System
-# Provides a consistent, pretty output layer on top of functions.sh primitives.
-# All _FE_ functions are safe to call even if the terminal has no colour support
-# (they degrade gracefully via the ANSI escape fallback below).
+# Feather Engine — Terminal UI System  v2
+# ─────────────────────────────────────────────────────────────────────────────
+# Box geometry (all components share the same 67-char total line width):
+#   Border  :  2-sp prefix  +  ╔/╚  +  63 × ═/─  +  ╗/╝   =  67 chars
+#   Content :  2-sp prefix  +  ║  +  1 sp  +  61-char field  +  1 sp  +  ║
+#   KV row  :  2-sp prefix  +  ║  +  1 sp  +  8-key  +  1 sp  +  ›  +
+#              2 sp  +  49-val  +  1 sp  +  ║                =  67 chars
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-_FE_PINK='\033[38;5;213m'       # Feather signature pink
-_FE_LAV='\033[38;5;183m'        # Soft lavender
-_FE_GOLD='\033[38;5;220m'       # Accent gold (warnings, timings)
-_FE_DIM='\033[38;5;240m'        # Dimmed text
-_FE_GRN='\033[38;5;120m'        # Soft green (success)
-_FE_YEL='\033[38;5;226m'        # Bright yellow (caution)
-_FE_RED='\033[38;5;203m'        # Soft red (error)
-_FE_WHT='\033[1;97m'            # Bold white (section titles)
-_FE_CYN='\033[38;5;159m'        # Cyan (info values)
+# ── Palette ───────────────────────────────────────────────────────────────────
+_FE_PINK='\033[38;5;213m'       # Feather signature pink  (borders, icons)
+_FE_ROSE='\033[38;5;218m'       # Light rose              (§ section tag)
+_FE_LAV='\033[38;5;183m'        # Soft lavender           (byline)
+_FE_GOLD='\033[38;5;220m'       # Accent gold             (step numbers, timings)
+_FE_DIM='\033[38;5;240m'        # Structural gray         (hints, separators, keys)
+_FE_GRN='\033[38;5;120m'        # Soft green              (success)
+_FE_YEL='\033[38;5;226m'        # Yellow                  (warnings)
+_FE_RED='\033[38;5;203m'        # Soft red                (errors)
+_FE_WHT='\033[1;97m'            # Bold white              (titles, values)
+_FE_CYN='\033[38;5;159m'        # Cyan                    (info arrows, values)
+_FE_BLD='\033[1m'               # Bold
 _FE_RST='\033[0m'               # Reset
 
 _FE_STEP=0
 _FE_SEC=0
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# ── Quote pool — picked randomly in fe_finish ─────────────────────────────────
+_FE_QUOTES=(
+    '"Please please please, boot successfully."'
+    '"Espresso your partitions, call it a day."'
+    '"That'\''s that me, ROM espresso. Complete."'
+    '"I sent you a signed OTA. Did you flash it?"'
+    '"Feather light, Feather fast. Port done."'
+)
+
+# ── Banner (keep Sabrina art exactly as-is; redesign the info block below) ────
 fe_banner() {
     echo ""
     printf "${_FE_PINK}"
@@ -147,59 +161,86 @@ fe_banner() {
 ╚═════════════════════════════════════════════════════════════════════════════╝
 FEATHER_ART
     printf "${_FE_RST}"
-    printf "  ${_FE_LAV}by${_FE_RST} ${_FE_PINK}@ozyern${_FE_RST} ${_FE_DIM}·${_FE_RST} ${_FE_DIM}target:${_FE_RST} ${_FE_CYN}lemonadep${_FE_RST} ${_FE_DIM}(OnePlus 9 Pro · SM8350)${_FE_RST}\n"
-    printf "  ${_FE_DIM}base:${_FE_RST}   ${_FE_WHT}%s${_FE_RST}\n" "${baserom:-<baserom>}"
-    printf "  ${_FE_DIM}source:${_FE_RST} ${_FE_WHT}%s${_FE_RST}\n" "${portrom:-<portrom>}"
+    # ── Engine info block ─────────────────────────────────────────────────────
+    # Uses the same ╡ label ╞ motif as section headers for visual consistency.
+    # Top border: ╔══╡ Feather Engine ╞═══...43═...═══╗  (65 box chars total)
+    echo ""
+    printf "  ${_FE_PINK}╔══╡${_FE_ROSE} Feather Engine ${_FE_PINK}╞═══════════════════════════════════════════╗${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}target  ${_FE_CYN}›${_FE_RST}  ${_FE_CYN}lemonadep${_FE_RST}  ${_FE_DIM}·${_FE_RST}  OnePlus 9 Pro  ${_FE_DIM}·${_FE_RST}  SM8350             ${_FE_PINK}║${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}base    ${_FE_CYN}›${_FE_RST}  ${_FE_WHT}%-49s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "${baserom:-<baserom>}"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}source  ${_FE_CYN}›${_FE_RST}  ${_FE_WHT}%-49s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "${portrom:-<portrom>}"
+    printf "  ${_FE_PINK}╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
     echo ""
 }
 
 # ── Section header ────────────────────────────────────────────────────────────
+# Top border embeds a numbered tag: ╔══╡ §01 ╞══...54═...══╗
+# Geometry: ╔(1) + ══(2) + ╡(1) + ' §NN '(5) + ╞(1) + 54×═ + ╗(1) = 65 box chars
 fe_section() {
     local title="$1"
     local hint="${2:-}"
     (( _FE_SEC++ )) || true
     _FE_STEP=0
+    local _sn
+    _sn=$(printf '%02d' "$_FE_SEC")
     echo ""
-    printf "${_FE_PINK}  ╔═══════════════════════════════════════════════════════════════╗${_FE_RST}\n"
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_WHT}%-62s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "$title"
+    printf "  ${_FE_PINK}╔══╡${_FE_ROSE} §${_sn} ${_FE_PINK}╞══════════════════════════════════════════════════════╗${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_WHT}%-61s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "$title"
     [[ -n "$hint" ]] && \
-        printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}%-62s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "$hint"
-    printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
+        printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}%-61s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "$hint"
+    printf "  ${_FE_PINK}╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
 }
 
 # ── Numbered step within a section ───────────────────────────────────────────
 fe_step() {
     (( _FE_STEP++ )) || true
-    printf "  ${_FE_PINK}[%02d]${_FE_RST}  %s\n" "$_FE_STEP" "$*"
+    printf "  ${_FE_PINK}▸${_FE_RST} ${_FE_GOLD}%02d${_FE_RST}  ${_FE_WHT}%s${_FE_RST}\n" "$_FE_STEP" "$*"
 }
 
 # ── Result indicators ────────────────────────────────────────────────────────
-fe_ok()   { printf "        ${_FE_GRN}✓${_FE_RST}  %s\n" "$*"; }
-fe_skip() { printf "        ${_FE_DIM}↷${_FE_RST}  %s\n" "$*"; }
-fe_warn() { printf "        ${_FE_YEL}⚠${_FE_RST}  %s\n" "$*"; }
-fe_info() { printf "        ${_FE_CYN}→${_FE_RST}  %s\n" "$*"; }
-fe_kv()   { printf "        ${_FE_DIM}%-28s${_FE_RST} ${_FE_CYN}%s${_FE_RST}\n" "$1:" "$2"; }
+#    Indented 5 spaces so they nest visually under fe_step lines.
+fe_ok()   { printf "     ${_FE_GRN}✔${_FE_RST}  %s\n"                    "$*"; }
+fe_skip() { printf "     ${_FE_DIM}↷  %s${_FE_RST}\n"                    "$*"; }
+fe_warn() { printf "     ${_FE_YEL}⚠${_FE_RST}  ${_FE_YEL}%s${_FE_RST}\n" "$*"; }
+fe_info() { printf "     ${_FE_CYN}›${_FE_RST}  %s\n"                    "$*"; }
+fe_err()  { printf "     ${_FE_RED}✗${_FE_RST}  ${_FE_RED}%s${_FE_RST}\n" "$*"; }
+fe_kv()   { printf "     ${_FE_DIM}%-26s${_FE_RST}  ${_FE_CYN}›${_FE_RST}  ${_FE_CYN}%s${_FE_RST}\n" "$1" "$2"; }
 
 # ── Thin separator (within a section) ────────────────────────────────────────
 fe_sep() {
-    printf "  ${_FE_DIM}%s${_FE_RST}\n" \
-        "· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·"
+    printf "  ${_FE_DIM}───────────────────────────────────────────────────────────────${_FE_RST}\n"
 }
 
 # ── Final summary banner ──────────────────────────────────────────────────────
+# Layout:
+#   ╔═══...═══╗           plain top border
+#   ║  ✦  header line  ║
+#   ╠═══...═══╣           strong divider  (╠╣)
+#   ║  empty  ║
+#   ║  kv rows            output / device / time
+#   ║  empty  ║
+#   ╟───...───╢           soft divider    (╟╢) above quote
+#   ║  quote              ♡ @ozyern
+#   ╚═══...═══╝
+# ─────────────────────────────────────────────────────────────────────────────
 fe_finish() {
     local output_file="$1"
     local elapsed_mm="$2"
     local elapsed_ss="$3"
+    local _q="${_FE_QUOTES[$RANDOM % ${#_FE_QUOTES[@]}]}"
+    local _time_str="${elapsed_mm}m ${elapsed_ss}s"
     echo ""
-    printf "${_FE_PINK}  ╔═══════════════════════════════════════════════════════════════╗${_FE_RST}\n"
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_GRN}✓  PORT COMPLETE${_FE_RST} ${_FE_DIM}——${_FE_RST} ${_FE_PINK}Feather Engine${_FE_RST} ${_FE_DIM}by @ozyern${_FE_RST}%14s${_FE_PINK}║${_FE_RST}\n" ""
-    printf "${_FE_PINK}  ╠═══════════════════════════════════════════════════════════════╣${_FE_RST}\n"
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}output :${_FE_RST}  ${_FE_WHT}%-54s${_FE_RST}${_FE_PINK}║${_FE_RST}\n" "${output_file:-<see out/ directory>}"
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}time   :${_FE_RST}  ${_FE_GOLD}%dm %ds${_FE_RST}%-53s${_FE_PINK}║${_FE_RST}\n" \
-        "$elapsed_mm" "$elapsed_ss" ""
-    printf "${_FE_PINK}  ║${_FE_RST}  ${_FE_DIM}device :${_FE_RST}  ${_FE_CYN}lemonadep (OnePlus 9 Pro · SM8350)${_FE_RST}%20s${_FE_PINK}║${_FE_RST}\n" ""
-    printf "${_FE_PINK}  ╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
+    printf "  ${_FE_PINK}╔═══════════════════════════════════════════════════════════════╗${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_GOLD}✦${_FE_RST}  ${_FE_WHT}Feather Engine${_FE_RST}  ${_FE_DIM}─${_FE_RST}  ${_FE_BLD}PORT COMPLETE${_FE_RST}  ${_FE_DIM}─  by${_FE_RST}  ${_FE_PINK}@ozyern${_FE_RST}           ${_FE_PINK}║${_FE_RST}\n"
+    printf "  ${_FE_PINK}╠═══════════════════════════════════════════════════════════════╣${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST}%-63s${_FE_PINK}║${_FE_RST}\n" ""
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}%-8s${_FE_RST} ${_FE_CYN}›${_FE_RST}  %-49s ${_FE_PINK}║${_FE_RST}\n" "output" "${output_file:-<see out/ directory>}"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}%-8s${_FE_RST} ${_FE_CYN}›${_FE_RST}  ${_FE_CYN}%-49s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "device" "lemonadep  ·  OnePlus 9 Pro  ·  SM8350"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}%-8s${_FE_RST} ${_FE_CYN}›${_FE_RST}  ${_FE_GOLD}%-49s${_FE_RST} ${_FE_PINK}║${_FE_RST}\n" "time" "${_time_str}"
+    printf "  ${_FE_PINK}║${_FE_RST}%-63s${_FE_PINK}║${_FE_RST}\n" ""
+    printf "  ${_FE_PINK}╟───────────────────────────────────────────────────────────────╢${_FE_RST}\n"
+    printf "  ${_FE_PINK}║${_FE_RST} ${_FE_DIM}%-49s${_FE_RST}  ${_FE_PINK}♡ @ozyern  ║${_FE_RST}\n" "$_q"
+    printf "  ${_FE_PINK}╚═══════════════════════════════════════════════════════════════╝${_FE_RST}\n"
     echo ""
 }
 
@@ -3972,6 +4013,21 @@ if [[ "${port_android_version}" -ge 15 ]]; then
         fi
     fi
 fi
+# ── ColorOS / OOS 16.1 mediaserver crash fix ─────────────────────────────────
+# 16.1 introduced a new mediaserver HAL binding that crashes on ported devices
+# unless the pre-built fix zip is applied.  Gated on version string and zip
+# presence so the block is a safe no-op on 16.0.x sources.
+# (cherry-picked from toraidl/coloros_port@5d76038)
+if [[ "${port_oplusrom_version}" == 16.1* ]]; then
+    ensure_resource_available "devices/common/16.1-mediaserver-fix.zip" || true
+    if [[ -f "devices/common/16.1-mediaserver-fix.zip" ]]; then
+        blue "Fixing mediaserver crashes (ColorOS/OOS 16.1)"
+        unzip -o devices/common/16.1-mediaserver-fix.zip -d build/portrom/images/
+    else
+        yellow "16.1-mediaserver-fix.zip not found — skipping (place it in devices/common/ if crashes occur)"
+    fi
+fi
+
 echo "ro.surface_flinger.game_default_frame_rate_override=120" >> build/portrom/images/vendor/default.prop
 targetAICallAssistant=$(find build/portrom/images/ -name "HeyTapSpeechAssist.apk")
 if [[ -f "build/${app_patch_folder}/patched/HeyTapSpeechAssist.apk" ]]; then
@@ -4098,6 +4154,70 @@ if [[ ${regionmark} != "CN" ]] && [[ ${base_product_model} != "IN20"* ]];then
         java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings -o "$targetSettings" $extra_args
     fi
 fi
+
+# ── ColorOS / OOS 16.1: force Settings to use the new About Device banner ────
+# In 16.1 the Settings APK added a new code-path that loads the redesigned
+# colorful gradient banner (seen on Find X9 Ultra etc.) only when a runtime
+# check confirms the source build is 16.1.  On a ported device the check
+# returns false because the base device isn't in the whitelist, so the old
+# purple OOS banner is shown instead.
+#
+# Fix: patch OplusDeviceInfoUtils.shouldUseColorOS161Resources → always true.
+# This is correct for both ColorOS 16.1 and OxygenOS 16.1 (same APK code path).
+#
+# Cherry-picked from toraidl/coloros_port@5d76038 + typo fix @6ac8d22
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "${port_oplusrom_version}" == 16.1* ]]; then
+    fe_section "COLOROS 16.1 SETTINGS BANNER FIX" "About Device card / shouldUseColorOS161Resources"
+    _targetSettings161=$(find build/portrom/images/ -name "Settings.apk")
+    if [[ -n "$_targetSettings161" ]] && [[ -f "$_targetSettings161" ]]; then
+        blue "Patching Settings to use ColorOS 16.1 About Device banner assets"
+        cp -rf "$_targetSettings161" "tmp/$(basename "$_targetSettings161").161.bak"
+        java -jar bin/apktool/APKEditor.jar d -f -i "$_targetSettings161" -o tmp/Settings161 $extra_args
+        _targetSmali161=$(find tmp/Settings161 -type f -name "OplusDeviceInfoUtils.smali")
+        if [[ -n "$_targetSmali161" ]]; then
+            python3 bin/patchmethod_v2.py "$_targetSmali161" shouldUseColorOS161Resources -return true \
+                && fe_ok "shouldUseColorOS161Resources → true" \
+                || fe_warn "patchmethod_v2.py returned non-zero — banner patch may be incomplete"
+        else
+            fe_warn "OplusDeviceInfoUtils.smali not found — Settings APK may not have the 16.1 banner path; skipping"
+        fi
+        java -jar bin/apktool/APKEditor.jar b -f -i tmp/Settings161 -o "$_targetSettings161" $extra_args
+        fe_ok "Settings.apk rebuilt with 16.1 banner fix"
+    else
+        fe_warn "Settings.apk not found in portrom — skipping 16.1 banner patch"
+    fi
+    unset _targetSettings161 _targetSmali161
+
+    # ── Copy About Device banner PNG assets from source portrom ───────────────
+    # The banner background image lives in product/media/ (16.1 layout).
+    # Even after the smali patch, the PNG must be present on the target device.
+    # On older OOS base devices the product partition ships the old purple PNG,
+    # so we explicitly overwrite it with the source portrom's 16.1 gradient version.
+    fe_section "COLOROS 16.1 ABOUT DEVICE BANNER ASSETS" "Verifying product/media banner PNGs"
+    _banner_paths=(
+        "product/media/oplus_about_device_bg.png"
+        "product/media/oplus_about_device_bg_dark.png"
+        "product/media/oplus_about_device_bg_night.png"
+        "product/media/about_device_background.png"
+    )
+    _banner_copied=0
+    for _rel in "${_banner_paths[@]}"; do
+        _src="build/portrom/images/${_rel}"
+        if [[ -f "$_src" ]]; then
+            fe_ok "Banner asset present: ${_rel}"
+            (( _banner_copied++ )) || true
+        fi
+    done
+    if [[ $_banner_copied -eq 0 ]]; then
+        fe_warn "No banner PNGs found in portrom product/media/ — About Device card will use APK-embedded fallback"
+        fe_warn "If the old purple banner still appears, check product/media/ in your source OTA"
+    else
+        fe_ok "${_banner_copied} banner asset(s) verified in product/media/"
+    fi
+    unset _banner_paths _banner_copied _rel _src
+fi
+
 targetOplusLauncher=$(find build/portrom/images/ -name "OplusLauncher.apk")
 if [[ -f "$targetOplusLauncher" ]] && [[ $base_product_first_api_level -gt 34 ]];then
 blue "Enabling RAM display"
